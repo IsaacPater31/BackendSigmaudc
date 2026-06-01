@@ -1,0 +1,39 @@
+# Environment variables - IMPORTANTE: No subir archivos .env al repositorio
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+*.sql
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Database
+*.db
+*.sqlite
+
+*uploads/
