@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/andrxsq/SIGMAUDC/internal/constants"
@@ -2947,6 +2948,15 @@ func (h *MatriculaHandler) GetSolicitudesPorPrograma(w http.ResponseWriter, r *h
 
 	// El programa_id viene de los claims del JWT (ya está validado en el middleware)
 	programaID := claims.ProgramaID
+	page, pageSize := parsePagination(r, "page", "page_size")
+	estado := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("estado")))
+	if estado == "todos" {
+		estado = ""
+	}
+	if estado != "" && estado != "pendiente" && estado != "aprobada" && estado != "rechazada" {
+		http.Error(w, "Estado inválido", http.StatusBadRequest)
+		return
+	}
 
 	// Verificar que el usuario sea jefe departamental (opcional, pero buena práctica)
 	var jefeID int
@@ -2961,7 +2971,27 @@ func (h *MatriculaHandler) GetSolicitudesPorPrograma(w http.ResponseWriter, r *h
 		return
 	}
 
-	rows, err := h.db.Query(`
+	args := []interface{}{programaID}
+	estadoFilter := ""
+	if estado != "" {
+		estadoFilter = " AND sm.estado = $2"
+		args = append(args, estado)
+	}
+
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM solicitud_modificacion sm
+		WHERE sm.programa_id = $1%s
+	`, estadoFilter)
+	var totalItems int
+	if err := h.db.QueryRow(countQuery, args...).Scan(&totalItems); err != nil {
+		log.Printf("Error contando solicitudes: %v", err)
+		http.Error(w, "Error consultando solicitudes", http.StatusInternalServerError)
+		return
+	}
+
+	offset := (page - 1) * pageSize
+	listQuery := fmt.Sprintf(`
 		SELECT sm.id, sm.estudiante_id, u.codigo, e.nombre, e.apellido,
 		       sm.programa_id, sm.periodo_id,
 		       COALESCE(sm.grupos_agregar, '[]'::jsonb), 
@@ -2970,9 +3000,13 @@ func (h *MatriculaHandler) GetSolicitudesPorPrograma(w http.ResponseWriter, r *h
 		FROM solicitud_modificacion sm
 		JOIN estudiante e ON e.id = sm.estudiante_id
 		JOIN usuario u ON u.id = e.usuario_id
-		WHERE sm.programa_id = $1
+		WHERE sm.programa_id = $1%s
 		ORDER BY sm.fecha_solicitud DESC
-	`, programaID)
+		LIMIT $%d OFFSET $%d
+	`, estadoFilter, len(args)+1, len(args)+2)
+	args = append(args, pageSize, offset)
+
+	rows, err := h.db.Query(listQuery, args...)
 	if err != nil {
 		log.Printf("Error consultando solicitudes: %v", err)
 		http.Error(w, "Error consultando solicitudes", http.StatusInternalServerError)
@@ -3047,7 +3081,10 @@ func (h *MatriculaHandler) GetSolicitudesPorPrograma(w http.ResponseWriter, r *h
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"items":      resp,
+		"pagination": buildPaginationMeta(page, pageSize, totalItems),
+	})
 }
 
 // ValidarSolicitudModificacion aprueba o rechaza una solicitud
