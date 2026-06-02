@@ -85,74 +85,85 @@ func main() {
 	protected := r.PathPrefix("/api").Subrouter()
 	protected.Use(middleware.JWTAuthMiddleware(cfg.JWTSecret))
 
+	// Subrouters por rol para aplicar autorización consistente.
+	estudianteRoutes := protected.PathPrefix("").Subrouter()
+	estudianteRoutes.Use(middleware.RequireRoles("estudiante"))
+
+	jefeRoutes := protected.PathPrefix("").Subrouter()
+	jefeRoutes.Use(middleware.RequireRoles("jefe_departamental"))
+
 	// Perfil del usuario autenticado
 	protected.HandleFunc("/me", authHandler.GetCurrentUser).Methods("GET")
 
 	// Auditoría
-	protected.HandleFunc("/audit", auditHandler.GetAuditLogs).Methods("GET")
+	jefeRoutes.HandleFunc("/audit", auditHandler.GetAuditLogs).Methods("GET")
 
 	// Periodos académicos y plazos
-	protected.HandleFunc("/periodos", plazosHandler.GetPeriodos).Methods("GET")
+	jefeRoutes.HandleFunc("/periodos", plazosHandler.GetPeriodos).Methods("GET")
 	protected.HandleFunc("/periodos/activo", plazosHandler.GetPeriodoActivo).Methods("GET")
-	protected.HandleFunc("/periodos", plazosHandler.CreatePeriodo).Methods("POST")
-	protected.HandleFunc("/periodos/{id}", plazosHandler.UpdatePeriodo).Methods("PUT")
-	protected.HandleFunc("/periodos/{id}", plazosHandler.DeletePeriodo).Methods("DELETE")
-	protected.HandleFunc("/periodos-con-plazos", plazosHandler.GetPeriodosConPlazos).Methods("GET")
+	jefeRoutes.HandleFunc("/periodos", plazosHandler.CreatePeriodo).Methods("POST")
+	jefeRoutes.HandleFunc("/periodos/{id}", plazosHandler.UpdatePeriodo).Methods("PUT")
+	jefeRoutes.HandleFunc("/periodos/{id}", plazosHandler.DeletePeriodo).Methods("DELETE")
+	jefeRoutes.HandleFunc("/periodos-con-plazos", plazosHandler.GetPeriodosConPlazos).Methods("GET")
 	protected.HandleFunc("/plazos/activo", plazosHandler.GetActivePeriodoPlazos).Methods("GET")
-	protected.HandleFunc("/periodos/{periodo_id}/plazos", plazosHandler.GetPlazos).Methods("GET")
-	protected.HandleFunc("/periodos/{periodo_id}/plazos", plazosHandler.UpdatePlazos).Methods("PUT")
+	jefeRoutes.HandleFunc("/periodos/{periodo_id}/plazos", plazosHandler.GetPlazos).Methods("GET")
+	jefeRoutes.HandleFunc("/periodos/{periodo_id}/plazos", plazosHandler.UpdatePlazos).Methods("PUT")
 
 	// Documentos académicos
-	protected.HandleFunc("/documentos", documentosHandler.GetDocumentosEstudiante).Methods("GET")
-	protected.HandleFunc("/documentos", documentosHandler.SubirDocumento).Methods("POST")
-	protected.HandleFunc("/documentos/programa", documentosHandler.GetDocumentosPorPrograma).Methods("GET")
-	protected.HandleFunc("/documentos/{id}/revisar", documentosHandler.RevisarDocumento).Methods("PUT")
+	estudianteRoutes.HandleFunc("/documentos", documentosHandler.GetDocumentosEstudiante).Methods("GET")
+	estudianteRoutes.HandleFunc("/documentos", documentosHandler.SubirDocumento).Methods("POST")
+	jefeRoutes.HandleFunc("/documentos/programa", documentosHandler.GetDocumentosPorPrograma).Methods("GET")
+	jefeRoutes.HandleFunc("/documentos/{id}/revisar", documentosHandler.RevisarDocumento).Methods("PUT")
 
 	// Pensum y asignaturas
-	protected.HandleFunc("/pensum", pensumHandler.GetPensumEstudiante).Methods("GET")
-	protected.HandleFunc("/pensum/list", pensumHandler.ListPensums).Methods("GET")
-	protected.HandleFunc("/pensum/{id}/asignaturas", pensumHandler.GetAsignaturasPensum).Methods("GET")
-	protected.HandleFunc("/pensum/{id}/grupos", pensumHandler.GetGruposPensum).Methods("GET")
+	estudianteRoutes.HandleFunc("/pensum", pensumHandler.GetPensumEstudiante).Methods("GET")
+	jefeRoutes.HandleFunc("/pensum/list", pensumHandler.ListPensums).Methods("GET")
+	jefeRoutes.HandleFunc("/pensum/{id}/asignaturas", pensumHandler.GetAsignaturasPensum).Methods("GET")
+	jefeRoutes.HandleFunc("/pensum/{id}/grupos", pensumHandler.GetGruposPensum).Methods("GET")
 
 	// Datos personales del estudiante
-	protected.HandleFunc("/estudiante/datos", estudianteHandler.GetDatosEstudiante).Methods("GET")
-	protected.HandleFunc("/estudiante/datos", estudianteHandler.UpdateDatosEstudiante).Methods("PUT")
-	protected.HandleFunc("/estudiante/foto", estudianteHandler.SubirFotoEstudiante).Methods("POST")
+	estudianteRoutes.HandleFunc("/estudiante/datos", estudianteHandler.GetDatosEstudiante).Methods("GET")
+	estudianteRoutes.HandleFunc("/estudiante/datos", estudianteHandler.UpdateDatosEstudiante).Methods("PUT")
+	estudianteRoutes.HandleFunc("/estudiante/foto", estudianteHandler.SubirFotoEstudiante).Methods("POST")
 
 	// Datos personales del jefe departamental
-	protected.HandleFunc("/jefe/datos", jefeHandler.GetDatosJefe).Methods("GET")
-	protected.HandleFunc("/jefe/datos", jefeHandler.UpdateDatosJefe).Methods("PUT")
-	protected.HandleFunc("/jefe/foto", jefeHandler.SubirFotoJefe).Methods("POST")
+	jefeRoutes.HandleFunc("/jefe/datos", jefeHandler.GetDatosJefe).Methods("GET")
+	jefeRoutes.HandleFunc("/jefe/datos", jefeHandler.UpdateDatosJefe).Methods("PUT")
+	jefeRoutes.HandleFunc("/jefe/foto", jefeHandler.SubirFotoJefe).Methods("POST")
 
 	// Matrícula e inscripción
-	protected.HandleFunc("/matricula/validar-inscripcion", matriculaHandler.ValidarInscripcion).Methods("GET")
-	protected.HandleFunc("/matricula/asignaturas-disponibles", matriculaHandler.GetAsignaturasDisponibles).Methods("GET")
-	protected.HandleFunc("/matricula/horario-actual", matriculaHandler.GetHorarioActual).Methods("GET")
-	protected.HandleFunc("/matricula/asignaturas/{id}/grupos", matriculaHandler.GetGruposAsignatura).Methods("GET")
-	protected.HandleFunc("/matricula/inscribir", matriculaHandler.InscribirAsignaturas).Methods("POST")
-	protected.HandleFunc("/grupo/{id}/horario", matriculaHandler.UpdateGrupoHorario).Methods("PUT")
+	estudianteRoutes.HandleFunc("/matricula/validar-inscripcion", matriculaHandler.ValidarInscripcion).Methods("GET")
+	estudianteRoutes.HandleFunc("/matricula/asignaturas-disponibles", matriculaHandler.GetAsignaturasDisponibles).Methods("GET")
+	estudianteRoutes.HandleFunc("/matricula/horario-actual", matriculaHandler.GetHorarioActual).Methods("GET")
+	estudianteRoutes.HandleFunc("/matricula/asignaturas/{id}/grupos", matriculaHandler.GetGruposAsignatura).Methods("GET")
+	estudianteRoutes.HandleFunc("/matricula/inscribir", matriculaHandler.InscribirAsignaturas).Methods("POST")
+	jefeRoutes.HandleFunc("/grupo/{id}/horario", matriculaHandler.UpdateGrupoHorario).Methods("PUT")
 
 	// Modificaciones de matrícula (jefatura)
-	protected.HandleFunc("/modificaciones/estudiante", matriculaHandler.GetStudentMatricula).Methods("GET")
-	protected.HandleFunc("/modificaciones/estudiante/{id}/disponibles", matriculaHandler.JefeGetModificacionesData).Methods("GET")
-	protected.HandleFunc("/modificaciones/estudiante/{id}/inscribir", matriculaHandler.JefeInscribirAsignaturas).Methods("POST")
-	protected.HandleFunc("/modificaciones/estudiante/{id}/desmatricular", matriculaHandler.JefeDesmatricularGrupo).Methods("POST")
+	jefeRoutes.HandleFunc("/modificaciones/estudiante", matriculaHandler.GetStudentMatricula).Methods("GET")
+	jefeRoutes.HandleFunc("/modificaciones/estudiante/{id}/disponibles", matriculaHandler.JefeGetModificacionesData).Methods("GET")
+	jefeRoutes.HandleFunc("/modificaciones/estudiante/{id}/inscribir", matriculaHandler.JefeInscribirAsignaturas).Methods("POST")
+	jefeRoutes.HandleFunc("/modificaciones/estudiante/{id}/desmatricular", matriculaHandler.JefeDesmatricularGrupo).Methods("POST")
 
 	// Modificaciones de matrícula (estudiante)
-	protected.HandleFunc("/matricula/validar-modificaciones", matriculaHandler.ValidarModificaciones).Methods("GET")
-	protected.HandleFunc("/matricula/modificaciones", matriculaHandler.GetModificacionesData).Methods("GET")
-	protected.HandleFunc("/matricula/retirar-materia", matriculaHandler.RetirarMateria).Methods("POST")
-	protected.HandleFunc("/matricula/agregar-materia", matriculaHandler.AgregarMateriaModificaciones).Methods("POST")
+	estudianteRoutes.HandleFunc("/matricula/validar-modificaciones", matriculaHandler.ValidarModificaciones).Methods("GET")
+	estudianteRoutes.HandleFunc("/matricula/modificaciones", matriculaHandler.GetModificacionesData).Methods("GET")
+	estudianteRoutes.HandleFunc("/matricula/retirar-materia", matriculaHandler.RetirarMateria).Methods("POST")
+	estudianteRoutes.HandleFunc("/matricula/agregar-materia", matriculaHandler.AgregarMateriaModificaciones).Methods("POST")
 
 	// Solicitudes de modificación
-	protected.HandleFunc("/matricula/solicitudes-modificacion", matriculaHandler.GetSolicitudesEstudiante).Methods("GET")
-	protected.HandleFunc("/matricula/solicitudes-modificacion", matriculaHandler.CrearSolicitudModificacion).Methods("POST")
-	protected.HandleFunc("/jefe/solicitudes-modificacion", matriculaHandler.GetSolicitudesPorPrograma).Methods("GET")
-	protected.HandleFunc("/jefe/solicitudes-modificacion/{id}", matriculaHandler.ValidarSolicitudModificacion).Methods("PUT")
+	estudianteRoutes.HandleFunc("/matricula/solicitudes-modificacion", matriculaHandler.GetSolicitudesEstudiante).Methods("GET")
+	estudianteRoutes.HandleFunc("/matricula/solicitudes-modificacion", matriculaHandler.CrearSolicitudModificacion).Methods("POST")
+	jefeRoutes.HandleFunc("/jefe/solicitudes-modificacion", matriculaHandler.GetSolicitudesPorPrograma).Methods("GET")
+	jefeRoutes.HandleFunc("/jefe/solicitudes-modificacion/{id}", matriculaHandler.ValidarSolicitudModificacion).Methods("PUT")
 	protected.HandleFunc("/matricula/modificaciones/stream", matriculaHandler.StreamModificacionesEvents).Methods("GET")
 
-	// Archivos estáticos (uploads)
-	r.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads/"))))
+	// Archivos estáticos protegidos por JWT.
+	r.PathPrefix("/uploads/").Handler(
+		middleware.JWTAuthMiddleware(cfg.JWTSecret)(
+			http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads/"))),
+		),
+	)
 
 	// ── 7. Middlewares globales ───────────────────────────────────────────────
 

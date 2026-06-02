@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/andrxsq/SIGMAUDC/internal/constants"
 	"github.com/andrxsq/SIGMAUDC/internal/services"
 )
 
@@ -26,6 +27,16 @@ func NewAuditHandler(service *services.AuditService) *AuditHandler {
 //
 // Responde con un array JSON de models.AuditLog.
 func (h *AuditHandler) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
+	claims, err := getClaims(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if claims.Rol != constants.RolJefe {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
 	logs, err := h.service.GetAuditLogs(r.URL.Query().Get("limit"))
 	if err != nil {
 		http.Error(w, "Error fetching audit logs", http.StatusInternalServerError)

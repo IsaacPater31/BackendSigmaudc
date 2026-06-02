@@ -28,7 +28,12 @@ func JWTAuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
 				}
 				tokenString = parts[1]
 			} else {
-				// Fallback para canales SSE/EventSource (no soporta header Authorization nativo)
+				// Fallback por query token solo para endpoints que no pueden enviar
+				// Authorization fácilmente (SSE y archivos protegidos).
+				if !canUseQueryToken(r.URL.Path) {
+					http.Error(w, "Authorization header required", http.StatusUnauthorized)
+					return
+				}
 				tokenString = strings.TrimSpace(r.URL.Query().Get("token"))
 				if tokenString == "" {
 					http.Error(w, "Authorization header required", http.StatusUnauthorized)
@@ -62,6 +67,11 @@ func JWTAuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+func canUseQueryToken(path string) bool {
+	return strings.HasPrefix(path, "/api/matricula/modificaciones/stream") ||
+		strings.HasPrefix(path, "/uploads/")
 }
 
 // GetClaimsFromContext es una función helper para obtener los claims del contexto
