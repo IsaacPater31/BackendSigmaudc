@@ -1703,6 +1703,8 @@ type ModificacionesResponse struct {
 	Periodo                *models.PeriodoAcademico    `json:"periodo"`
 	MateriasMatriculadas   []models.MateriaMatriculada `json:"materias_matriculadas"`
 	AsignaturasDisponibles []AsignaturaDisponible      `json:"asignaturas_disponibles"`
+	PaginacionMaterias     models.PaginationMeta       `json:"paginacion_materias"`
+	PaginacionAsignaturas  models.PaginationMeta       `json:"paginacion_asignaturas"`
 	Creditos               ResumenCreditos             `json:"creditos"`
 	EstadoEstudiante       string                      `json:"estado_estudiante"`
 }
@@ -1772,6 +1774,9 @@ func (h *MatriculaHandler) GetModificacionesData(w http.ResponseWriter, r *http.
 		return
 	}
 
+	materiasPage, materiasPageSize := parsePagination(r, "materias_page", "materias_page_size")
+	asigPage, asigPageSize := parsePagination(r, "asignaturas_page", "asignaturas_page_size")
+
 	ctx, razon, err := h.prepareModificacionesContext(claims)
 	if err != nil {
 		log.Printf("Error preparando contexto de modificaciones: %v", err)
@@ -1815,10 +1820,15 @@ func (h *MatriculaHandler) GetModificacionesData(w http.ResponseWriter, r *http.
 		return
 	}
 
+	pagedMaterias, paginacionMaterias := paginateSlice(core.MateriasMatriculadas, materiasPage, materiasPageSize)
+	pagedAsignaturas, paginacionAsignaturas := paginateSlice(asignaturasDisponibles, asigPage, asigPageSize)
+
 	response := ModificacionesResponse{
 		Periodo:                core.Periodo,
-		MateriasMatriculadas:   core.MateriasMatriculadas,
-		AsignaturasDisponibles: asignaturasDisponibles,
+		MateriasMatriculadas:   pagedMaterias,
+		AsignaturasDisponibles: pagedAsignaturas,
+		PaginacionMaterias:     paginacionMaterias,
+		PaginacionAsignaturas:  paginacionAsignaturas,
 		Creditos: ResumenCreditos{
 			Maximo:      core.CreditosMax,
 			Inscritos:   core.CreditosInscritos,
@@ -2098,6 +2108,9 @@ func (h *MatriculaHandler) JefeGetModificacionesData(w http.ResponseWriter, r *h
 		return
 	}
 
+	materiasPage, materiasPageSize := parsePagination(r, "materias_page", "materias_page_size")
+	asigPage, asigPageSize := parsePagination(r, "asignaturas_page", "asignaturas_page_size")
+
 	vars := mux.Vars(r)
 	idStr := vars["id"]
 	if idStr == "" {
@@ -2152,10 +2165,15 @@ func (h *MatriculaHandler) JefeGetModificacionesData(w http.ResponseWriter, r *h
 		return
 	}
 
+	pagedMaterias, paginacionMaterias := paginateSlice(core.MateriasMatriculadas, materiasPage, materiasPageSize)
+	pagedAsignaturas, paginacionAsignaturas := paginateSlice(asignaturasDisponibles, asigPage, asigPageSize)
+
 	response := ModificacionesResponse{
 		Periodo:                core.Periodo,
-		MateriasMatriculadas:   core.MateriasMatriculadas,
-		AsignaturasDisponibles: asignaturasDisponibles,
+		MateriasMatriculadas:   pagedMaterias,
+		AsignaturasDisponibles: pagedAsignaturas,
+		PaginacionMaterias:     paginacionMaterias,
+		PaginacionAsignaturas:  paginacionAsignaturas,
 		Creditos: ResumenCreditos{
 			Maximo:      core.CreditosMax,
 			Inscritos:   core.CreditosInscritos,

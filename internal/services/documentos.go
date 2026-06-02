@@ -208,14 +208,53 @@ func (s *DocumentosService) SubirDocumento(usuarioID, programaID int, tipoDocume
 }
 
 func (s *DocumentosService) GetDocumentosPorPrograma(programaID int) ([]models.DocumentoEstudiante, error) {
+	resp, err := s.GetDocumentosPorProgramaPaginated(programaID, "", 1, 1000000)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Items, nil
+}
+
+func (s *DocumentosService) GetDocumentosPorProgramaPaginated(programaID int, estado string, page, pageSize int) (*models.DocumentosProgramaResponse, error) {
 	periodo, err := s.repo.GetPeriodoActivo()
 	if errors.Is(err, sql.ErrNoRows) {
-		return []models.DocumentoEstudiante{}, nil
+		return &models.DocumentosProgramaResponse{
+			Items: []models.DocumentoEstudiante{},
+			Pagination: models.PaginationMeta{
+				Page:       page,
+				PageSize:   pageSize,
+				TotalItems: 0,
+				TotalPages: 0,
+				HasNext:    false,
+				HasPrev:    false,
+			},
+		}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return s.repo.ListDocumentosByProgramaPeriodo(programaID, periodo.ID)
+	offset := (page - 1) * pageSize
+	items, totalItems, err := s.repo.ListDocumentosByProgramaPeriodoPaginated(programaID, periodo.ID, estado, pageSize, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	totalPages := 0
+	if totalItems > 0 {
+		totalPages = (totalItems + pageSize - 1) / pageSize
+	}
+
+	return &models.DocumentosProgramaResponse{
+		Items: items,
+		Pagination: models.PaginationMeta{
+			Page:       page,
+			PageSize:   pageSize,
+			TotalItems: totalItems,
+			TotalPages: totalPages,
+			HasNext:    totalPages > 0 && page < totalPages,
+			HasPrev:    page > 1 && totalPages > 0,
+		},
+	}, nil
 }
 
 func (s *DocumentosService) RevisarDocumento(usuarioID, programaID, docID int, req models.RevisarDocumentoRequest, ip, userAgent string) (map[string]interface{}, error) {

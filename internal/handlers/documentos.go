@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/andrxsq/SIGMAUDC/internal/constants"
 	"github.com/andrxsq/SIGMAUDC/internal/models"
@@ -108,7 +109,14 @@ func (h *DocumentosHandler) GetDocumentosPorPrograma(w http.ResponseWriter, r *h
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	documentos, err := h.service.GetDocumentosPorPrograma(claims.ProgramaID)
+	page, pageSize := parsePagination(r, "page", "page_size")
+	estado := strings.TrimSpace(r.URL.Query().Get("estado"))
+	if estado != "" && estado != constants.EstadoDocPendiente && estado != constants.EstadoDocAprobado && estado != constants.EstadoDocRechazado {
+		http.Error(w, "Invalid estado filter", http.StatusBadRequest)
+		return
+	}
+
+	documentos, err := h.service.GetDocumentosPorProgramaPaginated(claims.ProgramaID, estado, page, pageSize)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return

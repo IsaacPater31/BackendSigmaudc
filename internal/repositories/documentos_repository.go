@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/andrxsq/SIGMAUDC/internal/models"
@@ -145,6 +146,66 @@ func (r *DocumentosRepository) UpdateDocumentoRechazado(docID int, archivoURL st
 }
 
 func (r *DocumentosRepository) ListDocumentosByProgramaPeriodo(programaID, periodoID int) ([]models.DocumentoEstudiante, error) {
+	documentos, _, err := r.ListDocumentosByProgramaPeriodoPaginated(programaID, periodoID, "", 1000000, 0)
+	return documentos, err
+}
+
+func (r *DocumentosRepository) ListDocumentosByProgramaPeriodoPaginated(programaID, periodoID int, estado string, limit, offset int) ([]models.DocumentoEstudiante, int, error) {
+	filterState := ""
+	args := []interface{}{programaID, periodoID}
+	if estado != "" {
+		filterState = " AND d.estado = $3"
+		args = append(args, estado)
+	}
+
+	countQuery := fmt.Sprintf(`SELECT COUNT(*)
+	          FROM documentos_estudiante d
+	          WHERE d.programa_id = $1 AND d.periodo_id = $2%s`, filterState)
+
+	var total int
+	if err := r.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	listQuery := fmt.Sprintf(`SELECT d.id, d.estudiante_id, d.programa_id, d.periodo_id, d.tipo_documento,
+	          d.archivo_url, d.estado, d.observacion, d.revisado_por, d.fecha_subida, d.fecha_revision,
+	          e.nombre, e.apellido, u.codigo
+	          FROM documentos_estudiante d
+	          JOIN estudiante e ON d.estudiante_id = e.id
+	          JOIN usuario u ON e.usuario_id = u.id
+	          WHERE d.programa_id = $1 AND d.periodo_id = $2%s
+	          ORDER BY d.fecha_subida DESC
+	          LIMIT $%d OFFSET $%d`, filterState, len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
+
+	rows, err := r.db.Query(listQuery, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var documentos []models.DocumentoEstudiante
+	for rows.Next() {
+		var doc models.DocumentoEstudiante
+		var observacion sql.NullString
+		var revisadoPor sql.NullInt64
+		var fechaRevision sql.NullTime
+		if err := rows.Scan(
+			&doc.ID, &doc.EstudianteID, &doc.ProgramaID, &doc.PeriodoID, &doc.TipoDocumento,
+			&doc.ArchivoURL, &doc.Estado, &observacion, &revisadoPor, &doc.FechaSubida, &fechaRevision,
+			&doc.EstudianteNombre, &doc.EstudianteApellido, &doc.EstudianteCodigo,
+		); err != nil {
+			continue
+		}
+		doc.Observacion = models.NullStringJSON{NullString: observacion}
+		doc.RevisadoPor = revisadoPor
+		doc.FechaRevision = fechaRevision
+		documentos = append(documentos, doc)
+	}
+	return documentos, total, rows.Err()
+}
+
+func (r *DocumentosRepository) ListDocumentosByProgramaPeriodoLegacy(programaID, periodoID int) ([]models.DocumentoEstudiante, error) {
 	query := `SELECT d.id, d.estudiante_id, d.programa_id, d.periodo_id, d.tipo_documento,
 	          d.archivo_url, d.estado, d.observacion, d.revisado_por, d.fecha_subida, d.fecha_revision,
 	          e.nombre, e.apellido, u.codigo
