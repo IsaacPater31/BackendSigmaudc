@@ -3639,13 +3639,14 @@ type solicitudGrupoAgregar struct {
 }
 
 type solicitudGrupoRetirar struct {
-	HistorialID      int    `json:"historial_id"`
-	GrupoID          int    `json:"grupo_id"`
-	GrupoCodigo      string `json:"grupo_codigo"`
-	AsignaturaID     int    `json:"asignatura_id"`
-	AsignaturaCodigo string `json:"asignatura_codigo"`
-	AsignaturaNombre string `json:"asignatura_nombre"`
-	Creditos         int    `json:"creditos"`
+	HistorialID      int                         `json:"historial_id"`
+	GrupoID          int                         `json:"grupo_id"`
+	GrupoCodigo      string                      `json:"grupo_codigo"`
+	AsignaturaID     int                         `json:"asignatura_id"`
+	AsignaturaCodigo string                      `json:"asignatura_codigo"`
+	AsignaturaNombre string                      `json:"asignatura_nombre"`
+	Creditos         int                         `json:"creditos"`
+	Horarios         []models.HorarioDisponible  `json:"horarios,omitempty"`
 }
 
 type materiaVistaPrevia struct {
@@ -3670,6 +3671,109 @@ type creditosVistaPrevia struct {
 	InscritosProyectado   int `json:"inscritos_proyectado"`
 	DisponiblesProyectado int `json:"disponibles_proyectado"`
 	Delta                 int `json:"delta"`
+}
+
+type vistaPreviaHistorialParams struct {
+	solicitudID        string
+	estado             string
+	observacion        sql.NullString
+	fechaRevision      sql.NullTime
+	periodo            models.PeriodoAcademico
+	estudianteID       int
+	estudianteNombre   string
+	estudianteApellido string
+	estudianteCodigo   string
+	estudianteEstado   string
+	semestreEstudiante int
+	promedio           sql.NullFloat64
+	pensumID           int
+	periodoID          int
+	matriculaActual    []models.MateriaMatriculada
+	agregar            []solicitudGrupoAgregar
+	retirar            []solicitudGrupoRetirar
+}
+
+func (h *MatriculaHandler) adjuntarHorariosRetiro(items []solicitudGrupoRetirar) []solicitudGrupoRetirar {
+	grupoIDs := make([]int, 0, len(items))
+	for _, r := range items {
+		if r.GrupoID > 0 {
+			grupoIDs = append(grupoIDs, r.GrupoID)
+		}
+	}
+	horariosPorGrupo, _ := h.fetchHorariosForGroups(grupoIDs)
+	for i := range items {
+		if items[i].GrupoID > 0 {
+			items[i].Horarios = toModelHorarios(horariosPorGrupo[items[i].GrupoID])
+		}
+	}
+	return items
+}
+
+func (h *MatriculaHandler) responderVistaPreviaHistorial(w http.ResponseWriter, p vistaPreviaHistorialParams) {
+	agregar := h.enriquecerGruposSolicitud(p.agregar)
+	retirar := h.adjuntarHorariosRetiro(h.enriquecerGruposRetiroSolicitud(p.retirar))
+
+	matriculaActual := p.matriculaActual
+	if matriculaActual == nil {
+		matriculaActual = []models.MateriaMatriculada{}
+	}
+
+	creditosInscritos, err := h.fetchInscritosCredits(p.estudianteID, p.periodoID)
+	if err != nil {
+		http.Error(w, "Error calculando créditos", http.StatusInternalServerError)
+		return
+	}
+	creditosMax, err := h.fetchCreditLimit(p.pensumID, p.semestreEstudiante)
+	if err != nil {
+		http.Error(w, "Error calculando límite de créditos", http.StatusInternalServerError)
+		return
+	}
+	disponibles := creditosMax - creditosInscritos
+	if disponibles < 0 {
+		disponibles = 0
+	}
+
+	estudianteResp := map[string]interface{}{
+		"id":       p.estudianteID,
+		"codigo":   p.estudianteCodigo,
+		"nombre":   p.estudianteNombre,
+		"apellido": p.estudianteApellido,
+		"semestre": p.semestreEstudiante,
+		"estado":   p.estudianteEstado,
+	}
+	if p.promedio.Valid {
+		estudianteResp["promedio"] = p.promedio.Float64
+	}
+
+	resp := map[string]interface{}{
+		"solicitud_id":         p.solicitudID,
+		"estado":               p.estado,
+		"es_historial":         true,
+		"periodo":              p.periodo,
+		"estudiante":           estudianteResp,
+		"matricula_actual":     matriculaActual,
+		"matricula_proyectada": []materiaVistaPrevia{},
+		"materias_retiradas":   retirar,
+		"materias_agregar":     agregar,
+		"creditos": creditosVistaPrevia{
+			Maximo:                creditosMax,
+			InscritosActual:       creditosInscritos,
+			InscritosProyectado:   creditosInscritos,
+			DisponiblesProyectado: disponibles,
+			Delta:                 0,
+		},
+		"advertencias":  []string{},
+		"puede_aprobar": false,
+	}
+	if p.observacion.Valid && p.observacion.String != "" {
+		resp["observacion"] = p.observacion.String
+	}
+	if p.fechaRevision.Valid {
+		resp["fecha_revision"] = p.fechaRevision.Time
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 type bloqueHorarioDetallado struct {
@@ -3769,11 +3873,14 @@ func (h *MatriculaHandler) GetSolicitudVistaPrevia(w http.ResponseWriter, r *htt
 	solicitudID := mux.Vars(r)["id"]
 	var estudianteID, periodoID, programaID int
 	var estado string
+	var observacion sql.NullString
+	var fechaRevision sql.NullTime
 	var gruposAgregar, gruposRetirar json.RawMessage
 	err = h.db.QueryRow(`
-		SELECT estudiante_id, periodo_id, programa_id, estado, grupos_agregar, grupos_retirar
+		SELECT estudiante_id, periodo_id, programa_id, estado, grupos_agregar, grupos_retirar,
+		       observacion, fecha_revision
 		FROM solicitud_modificacion WHERE id = $1
-	`, solicitudID).Scan(&estudianteID, &periodoID, &programaID, &estado, &gruposAgregar, &gruposRetirar)
+	`, solicitudID).Scan(&estudianteID, &periodoID, &programaID, &estado, &gruposAgregar, &gruposRetirar, &observacion, &fechaRevision)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "Solicitud no encontrada", http.StatusNotFound)
@@ -3822,6 +3929,29 @@ func (h *MatriculaHandler) GetSolicitudVistaPrevia(w http.ResponseWriter, r *htt
 	var retirar []solicitudGrupoRetirar
 	_ = json.Unmarshal(gruposAgregar, &agregar)
 	_ = json.Unmarshal(gruposRetirar, &retirar)
+
+	if estado != "pendiente" {
+		h.responderVistaPreviaHistorial(w, vistaPreviaHistorialParams{
+			solicitudID:     solicitudID,
+			estado:          estado,
+			observacion:     observacion,
+			fechaRevision:   fechaRevision,
+			periodo:         periodo,
+			estudianteID:    estudianteID,
+			estudianteNombre: estudianteNombre,
+			estudianteApellido: estudianteApellido,
+			estudianteCodigo: estudianteCodigo,
+			estudianteEstado: estudianteEstado,
+			semestreEstudiante: semestreEstudiante,
+			promedio:        promedio,
+			pensumID:        pensumID,
+			periodoID:       periodoID,
+			matriculaActual: matriculaActual,
+			agregar:         agregar,
+			retirar:         retirar,
+		})
+		return
+	}
 
 	retirarGrupoIDs := make(map[int]struct{})
 	for _, r := range retirar {
