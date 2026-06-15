@@ -3952,19 +3952,6 @@ func (h *MatriculaHandler) GetSolicitudVistaPrevia(w http.ResponseWriter, r *htt
 		))
 	}
 
-	conflictos := detectarConflictosHorario(materiasABloquesDetallados(matriculaProyectada))
-	for _, c := range conflictos {
-		if c.Mensaje != "" {
-			advertencias = append(advertencias, c.Mensaje)
-		} else {
-			advertencias = append(advertencias, fmt.Sprintf(
-				"Choque el %s de %s a %s entre %s (%s) y %s (%s).",
-				diaDisplay(c.Dia), c.HoraInicio, c.HoraFin,
-				c.Asignatura1, c.Grupo1Codigo, c.Asignatura2, c.Grupo2Codigo,
-			))
-		}
-	}
-
 	agregar = h.enriquecerGruposSolicitud(agregar)
 	retirar = h.enriquecerGruposRetiroSolicitud(retirar)
 
@@ -3976,9 +3963,6 @@ func (h *MatriculaHandler) GetSolicitudVistaPrevia(w http.ResponseWriter, r *htt
 	}
 	if advertencias == nil {
 		advertencias = []string{}
-	}
-	if conflictos == nil {
-		conflictos = []conflictoHorarioDetalle{}
 	}
 
 	estudianteResp := map[string]interface{}{
@@ -4009,9 +3993,8 @@ func (h *MatriculaHandler) GetSolicitudVistaPrevia(w http.ResponseWriter, r *htt
 			DisponiblesProyectado: disponiblesProyectado,
 			Delta:                 creditosProyectados - creditosInscritos,
 		},
-		"conflictos_horario": conflictos,
-		"advertencias":       advertencias,
-		"puede_aprobar":      len(advertencias) == 0 && estado == "pendiente",
+		"advertencias":  advertencias,
+		"puede_aprobar": len(advertencias) == 0 && estado == "pendiente",
 	}
 
 	w.Header().Set("Content-Type", "application/json")
