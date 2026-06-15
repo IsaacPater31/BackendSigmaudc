@@ -1696,6 +1696,54 @@ func assignmentDisplay(id int, asigMap map[int]models.AsignaturaCompleta) string
 	return fmt.Sprintf("asignatura %d", id)
 }
 
+func puedeAgregarAsignaturaEnModificaciones(asigSemestre, estudianteSemestre int) bool {
+	return asigSemestre > estudianteSemestre
+}
+
+func mensajeSemestreNoPermitidoModificacion(codigoAsignatura string) string {
+	return fmt.Sprintf(
+		"No puedes agregar %s porque pertenece a tu semestre actual o a uno anterior. En modificaciones solo puedes agregar asignaturas de semestres superiores; para retirar materias usa la opción de retiro.",
+		codigoAsignatura,
+	)
+}
+
+func (h *MatriculaHandler) validateGruposAgregarSemestreModificacion(gruposAgregar json.RawMessage, estudianteSemestre int) error {
+	var items []struct {
+		AsignaturaID     int    `json:"asignatura_id"`
+		AsignaturaCodigo string `json:"asignatura_codigo"`
+	}
+	if len(gruposAgregar) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(gruposAgregar, &items); err != nil {
+		return fmt.Errorf("formato inválido en grupos a agregar")
+	}
+	for _, item := range items {
+		if item.AsignaturaID <= 0 {
+			continue
+		}
+		var asigSemestre int
+		var codigo string
+		err := h.db.QueryRow(`
+			SELECT a.codigo, COALESCE(MIN(pa.semestre), 0)
+			FROM asignatura a
+			LEFT JOIN pensum_asignatura pa ON pa.asignatura_id = a.id
+			WHERE a.id = $1
+			GROUP BY a.codigo
+		`, item.AsignaturaID).Scan(&codigo, &asigSemestre)
+		if err != nil {
+			return fmt.Errorf("asignatura inválida en la solicitud")
+		}
+		if codigo == "" && item.AsignaturaCodigo != "" {
+			codigo = item.AsignaturaCodigo
+		}
+		if !puedeAgregarAsignaturaEnModificaciones(asigSemestre, estudianteSemestre) {
+			return fmt.Errorf("%s", mensajeSemestreNoPermitidoModificacion(codigo))
+		}
+	}
+	return nil
+}
+
 // =============================================================================
 // MÓDULO DE MODIFICACIONES ESTUDIANTILES
 // =============================================================================
@@ -1708,6 +1756,7 @@ type ModificacionesResponse struct {
 	PaginacionAsignaturas  models.PaginationMeta       `json:"paginacion_asignaturas"`
 	Creditos               ResumenCreditos             `json:"creditos"`
 	EstadoEstudiante       string                      `json:"estado_estudiante"`
+	SemestreEstudiante     int                         `json:"semestre_estudiante"`
 }
 
 type RetirarMateriaRequest struct {
@@ -1835,7 +1884,8 @@ func (h *MatriculaHandler) GetModificacionesData(w http.ResponseWriter, r *http.
 			Inscritos:   core.CreditosInscritos,
 			Disponibles: core.CreditosDisponibles,
 		},
-		EstadoEstudiante: core.EstadoEstudiante,
+		EstadoEstudiante:   core.EstadoEstudiante,
+		SemestreEstudiante: core.SemestreEstudiante,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1991,8 +2041,11 @@ func (h *MatriculaHandler) getAsignaturasDisponiblesModificaciones(ctx *inscripc
 			continue
 		}
 
-		// Mostrar materias con estado "activa" de CUALQUIER semestre (como en pensum)
-		// También mostrar materias atrasadas y núcleo común
+		// En modificaciones solo se pueden agregar asignaturas de semestres superiores al del estudiante.
+		if !puedeAgregarAsignaturaEnModificaciones(asig.Semestre, ctx.Semestre) {
+			continue
+		}
+
 		isAtrasada := state == "pendiente_repeticion" || state == "obligatoria_repeticion"
 
 		// Si no está "activa" y no es atrasada, solo mostrar si es núcleo común
@@ -2180,7 +2233,8 @@ func (h *MatriculaHandler) JefeGetModificacionesData(w http.ResponseWriter, r *h
 			Inscritos:   core.CreditosInscritos,
 			Disponibles: core.CreditosDisponibles,
 		},
-		EstadoEstudiante: core.EstadoEstudiante,
+		EstadoEstudiante:   core.EstadoEstudiante,
+		SemestreEstudiante: core.SemestreEstudiante,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -2489,6 +2543,18 @@ func (h *MatriculaHandler) AgregarMateriaModificaciones(w http.ResponseWriter, r
 	selectedAsignaturasSet := make(map[int]struct{}, len(selectedAsignaturas))
 	for asignaturaID := range selectedAsignaturas {
 		selectedAsignaturasSet[asignaturaID] = struct{}{}
+	}
+
+	for asignaturaID := range selectedAsignaturasSet {
+		asig, ok := asignaturaMap[asignaturaID]
+		if !ok {
+			http.Error(w, "Asignatura fuera del pensum", http.StatusBadRequest)
+			return
+		}
+		if !puedeAgregarAsignaturaEnModificaciones(asig.Semestre, ctx.Semestre) {
+			http.Error(w, mensajeSemestreNoPermitidoModificacion(asig.Codigo), http.StatusConflict)
+			return
+		}
 	}
 
 	// Validar prerrequisitos y correquisitos
@@ -2912,6 +2978,18 @@ func (h *MatriculaHandler) CrearSolicitudModificacion(w http.ResponseWriter, r *
 		}
 	}
 
+	var semestreEstudiante int
+	err = h.db.QueryRow(`SELECT semestre FROM estudiante WHERE id = $1`, estudianteID).Scan(&semestreEstudiante)
+	if err != nil {
+		log.Printf("Error obteniendo semestre del estudiante: %v", err)
+		http.Error(w, "Error obteniendo información del estudiante", http.StatusInternalServerError)
+		return
+	}
+	if err := h.validateGruposAgregarSemestreModificacion(payload.GruposAgregar, semestreEstudiante); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+
 	var solicitudID int
 	err = h.db.QueryRow(`
 		INSERT INTO solicitud_modificacion (estudiante_id, programa_id, periodo_id, grupos_agregar, grupos_retirar, estado)
@@ -3153,6 +3231,18 @@ func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r
 
 	// Si se aprueba, aplicar cambios de forma transaccional y estricta.
 	if payload.Estado == "aprobada" {
+		var semestreEstudiante int
+		err = h.db.QueryRow(`SELECT semestre FROM estudiante WHERE id = $1`, estudianteID).Scan(&semestreEstudiante)
+		if err != nil {
+			log.Printf("Error obteniendo semestre del estudiante: %v", err)
+			http.Error(w, "Error obteniendo información del estudiante", http.StatusInternalServerError)
+			return
+		}
+		if err := h.validateGruposAgregarSemestreModificacion(gruposAgregar, semestreEstudiante); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+
 		tx, err := h.db.Begin()
 		if err != nil {
 			log.Printf("Error iniciando transacción: %v", err)

@@ -98,15 +98,8 @@ func main() {
 	// Auditoría
 	jefeRoutes.HandleFunc("/audit", auditHandler.GetAuditLogs).Methods("GET")
 
-	// Periodos académicos y plazos
-	jefeRoutes.HandleFunc("/periodos", plazosHandler.GetPeriodos).Methods("GET")
-	protected.HandleFunc("/periodos/activo", plazosHandler.GetPeriodoActivo).Methods("GET")
-	jefeRoutes.HandleFunc("/periodos", plazosHandler.CreatePeriodo).Methods("POST")
-	jefeRoutes.HandleFunc("/periodos/{id}", plazosHandler.UpdatePeriodo).Methods("PUT")
-	jefeRoutes.HandleFunc("/periodos/{id}", plazosHandler.DeletePeriodo).Methods("DELETE")
-	jefeRoutes.HandleFunc("/periodos-con-plazos", plazosHandler.GetPeriodosConPlazos).Methods("GET")
+	// Plazos del periodo activo (periodos se gestionan en BD)
 	protected.HandleFunc("/plazos/activo", plazosHandler.GetActivePeriodoPlazos).Methods("GET")
-	jefeRoutes.HandleFunc("/periodos/{periodo_id}/plazos", plazosHandler.GetPlazos).Methods("GET")
 	jefeRoutes.HandleFunc("/periodos/{periodo_id}/plazos", plazosHandler.UpdatePlazos).Methods("PUT")
 
 	// Documentos académicos

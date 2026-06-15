@@ -42,6 +42,17 @@ const (
 	// DocsRequeridosInscripcion es la cantidad mínima de documentos aprobados
 	// que necesita un estudiante para poder inscribir asignaturas.
 	DocsRequeridosInscripcion = 2
+
+	// EstadoSolicitudModificacionPendiente indica que la solicitud está en revisión.
+	EstadoSolicitudModificacionPendiente = "pendiente"
+)
+
+// ─── Mensajes de matrícula ───────────────────────────────────────────────────
+
+const (
+	// MsgInscripcionModificacionPendiente se muestra cuando el estudiante intenta
+	// inscribir con una solicitud de modificación activa en el periodo.
+	MsgInscripcionModificacionPendiente = "No puedes inscribir asignaturas porque tienes una solicitud de modificación pendiente de revisión. Debes esperar a que el jefe de departamento apruebe o rechace tu solicitud antes de realizar nuevas inscripciones, ya que esto afecta tus créditos matriculados."
 )
 
 // ─── Límites de archivos ──────────────────────────────────────────────────────

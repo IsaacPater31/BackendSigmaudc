@@ -3,6 +3,7 @@ package repositories
 import (
 	"database/sql"
 
+	"github.com/andrxsq/SIGMAUDC/internal/constants"
 	"github.com/andrxsq/SIGMAUDC/internal/models"
 	"github.com/lib/pq"
 )
@@ -421,6 +422,20 @@ func (r *MatriculaRepository) CountMateriasMatriculadas(estudianteID, periodoID 
 	query := `SELECT COUNT(*) FROM historial_academico WHERE id_estudiante = $1 AND id_periodo = $2 AND estado = 'matriculada'`
 	err := r.db.QueryRow(query, estudianteID, periodoID).Scan(&count)
 	return count, err
+}
+
+func (r *MatriculaRepository) HasSolicitudModificacionPendiente(estudianteID, periodoID int) (bool, error) {
+	var count int
+	query := `
+		SELECT COUNT(*)
+		FROM solicitud_modificacion
+		WHERE estudiante_id = $1 AND periodo_id = $2 AND estado = $3
+	`
+	err := r.db.QueryRow(query, estudianteID, periodoID, constants.EstadoSolicitudModificacionPendiente).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func (r *MatriculaRepository) GetInscritosCredits(estudianteID, periodoID int) (int, error) {

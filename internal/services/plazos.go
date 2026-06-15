@@ -11,12 +11,9 @@ import (
 )
 
 var (
-	ErrPeriodoNotFound          = errors.New("periodo not found")
-	ErrPeriodoDuplicado         = errors.New("periodo duplicado")
-	ErrPeriodoArchivado         = errors.New("periodo archivado")
-	ErrPeriodoInactivo          = errors.New("periodo inactivo")
-	ErrPeriodoArchivadoNoActivo = errors.New("periodo archivado no puede activarse")
-	ErrSemestreInvalido         = errors.New("semestre invalido")
+	ErrPeriodoNotFound  = errors.New("periodo not found")
+	ErrPeriodoArchivado = errors.New("periodo archivado")
+	ErrPeriodoInactivo  = errors.New("periodo inactivo")
 )
 
 type AuditMetadata struct {
@@ -26,7 +23,7 @@ type AuditMetadata struct {
 	ProgramaID int
 }
 
-// PlazosService concentra reglas de negocio de periodos/plazos.
+// PlazosService concentra reglas de negocio de plazos del periodo activo.
 type PlazosService struct {
 	repo      *repositories.PlazosRepository
 	auditoria *AuditoriaService
@@ -37,10 +34,6 @@ func NewPlazosService(repo *repositories.PlazosRepository, auditoria *AuditoriaS
 		repo:      repo,
 		auditoria: auditoria,
 	}
-}
-
-func (s *PlazosService) GetPeriodos() ([]models.PeriodoAcademico, error) {
-	return s.repo.GetPeriodos()
 }
 
 func (s *PlazosService) GetPeriodoActivo() (*models.PeriodoAcademico, error) {
@@ -69,74 +62,6 @@ func (s *PlazosService) GetActivePeriodoPlazos(programaID int) (*models.ActivePl
 		Periodo: periodo,
 		Plazos:  plazos,
 	}, nil
-}
-
-func (s *PlazosService) CreatePeriodo(req models.CreatePeriodoRequest) (*models.PeriodoAcademico, error) {
-	if req.Semestre != 1 && req.Semestre != 2 {
-		return nil, ErrSemestreInvalido
-	}
-
-	exists, err := s.repo.ExistsPeriodoByYearAndSemestre(req.Year, req.Semestre)
-	if err != nil {
-		return nil, err
-	}
-	if exists {
-		return nil, ErrPeriodoDuplicado
-	}
-
-	periodo, err := s.repo.CreatePeriodo(req.Year, req.Semestre)
-	if err != nil {
-		return nil, err
-	}
-
-	programIDs, err := s.repo.GetProgramaIDs()
-	if err != nil {
-		return periodo, nil
-	}
-	for _, programID := range programIDs {
-		_ = s.repo.EnsureDefaultPlazos(periodo.ID, programID)
-	}
-
-	return periodo, nil
-}
-
-func (s *PlazosService) UpdatePeriodo(periodoID int, req models.UpdatePeriodoRequest) (*models.PeriodoAcademico, error) {
-	current, err := s.repo.GetPeriodoByID(periodoID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrPeriodoNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	newActivo := current.Activo
-	newArchivado := current.Archivado
-
-	if req.Archivado != nil {
-		newArchivado = *req.Archivado
-		if newArchivado {
-			newActivo = false
-		}
-	}
-
-	if req.Activo != nil {
-		if newArchivado && *req.Activo {
-			return nil, ErrPeriodoArchivadoNoActivo
-		}
-		newActivo = *req.Activo
-	}
-
-	if newActivo {
-		if err := s.repo.DeactivateOtherPeriodos(periodoID); err != nil {
-			return nil, err
-		}
-	}
-
-	return s.repo.UpdatePeriodo(periodoID, newActivo, newArchivado)
-}
-
-func (s *PlazosService) GetPlazos(periodoID, programaID int) (*models.Plazos, error) {
-	return s.repo.GetOrCreatePlazos(periodoID, programaID)
 }
 
 func (s *PlazosService) UpdatePlazos(periodoID, programaID int, req models.UpdatePlazosRequest, audit AuditMetadata) (*models.Plazos, error) {
@@ -189,25 +114,6 @@ func (s *PlazosService) UpdatePlazos(periodoID, programaID int, req models.Updat
 	}
 
 	return updated, nil
-}
-
-func (s *PlazosService) GetPeriodosConPlazos(programaID int) ([]models.PeriodoConPlazos, error) {
-	periodos, err := s.repo.GetPeriodosConPlazos(programaID)
-	if err != nil {
-		return nil, err
-	}
-
-	for i := range periodos {
-		if periodos[i].Plazos == nil {
-			plazos, err := s.repo.GetOrCreatePlazos(periodos[i].ID, programaID)
-			if err != nil {
-				continue
-			}
-			periodos[i].Plazos = plazos
-		}
-	}
-
-	return periodos, nil
 }
 
 func (s *PlazosService) buildAuditInfo(periodoID, programaID int) (int, int, string) {

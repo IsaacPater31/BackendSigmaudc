@@ -9,18 +9,6 @@ type PeriodoAcademico struct {
 	Archivado bool `json:"archivado"`
 }
 
-// CreatePeriodoRequest representa la solicitud para crear un periodo
-type CreatePeriodoRequest struct {
-	Year     int `json:"year"`
-	Semestre int `json:"semestre"`
-}
-
-// UpdatePeriodoRequest representa la solicitud para actualizar un periodo
-type UpdatePeriodoRequest struct {
-	Activo    *bool `json:"activo,omitempty"`    // Puntero para permitir nil (no actualizar)
-	Archivado *bool `json:"archivado,omitempty"` // Permite archivar/desarchivar
-}
-
 // Plazos representa los plazos de un periodo académico
 type Plazos struct {
 	ID             int  `json:"id"`
@@ -38,12 +26,6 @@ type UpdatePlazosRequest struct {
 	Modificaciones *bool `json:"modificaciones,omitempty"`
 }
 
-// PeriodoConPlazos representa un periodo académico con sus plazos asociados
-type PeriodoConPlazos struct {
-	PeriodoAcademico
-	Plazos *Plazos `json:"plazos,omitempty"`
-}
-
 // ActivePlazosResponse representa el periodo activo y los plazos del programa
 type ActivePlazosResponse struct {
 	Periodo *PeriodoAcademico `json:"periodo"`
@@ -52,7 +34,7 @@ type ActivePlazosResponse struct {
 
 // ValidarInscripcionResponse representa la respuesta de validación de inscripción
 type ValidarInscripcionResponse struct {
-	PuedeInscribir bool             `json:"puede_inscribir"`
-	Razon          string           `json:"razon"`
+	PuedeInscribir bool              `json:"puede_inscribir"`
+	Razon          string            `json:"razon"`
 	Periodo        *PeriodoAcademico `json:"periodo,omitempty"`
 }

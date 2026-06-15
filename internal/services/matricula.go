@@ -34,6 +34,7 @@ type ModificacionesCoreData struct {
 	CreditosMax          int
 	CreditosDisponibles  int
 	EstadoEstudiante     string
+	SemestreEstudiante   int
 }
 
 var (
@@ -60,6 +61,13 @@ func (s *MatriculaService) PrepareInscripcionContext(claims *models.JWTClaims) (
 	}
 	if docsAprobados < constants.DocsRequeridosInscripcion {
 		return nil, "No puedes inscribir asignaturas porque tus documentos requeridos (certificado EPS y comprobante de matrícula) aún no han sido aprobados. Por favor, sube los documentos y espera su aprobación.", nil
+	}
+	pendiente, err := s.repo.HasSolicitudModificacionPendiente(ctx.EstudianteID, ctx.Periodo.ID)
+	if err != nil {
+		return nil, "", err
+	}
+	if pendiente {
+		return nil, constants.MsgInscripcionModificacionPendiente, nil
 	}
 	return ctx, "", nil
 }
@@ -359,6 +367,7 @@ func (s *MatriculaService) BuildModificacionesCoreData(ctx *MatriculaContext, no
 		CreditosMax:          creditosMax,
 		CreditosDisponibles:  creditosDisponibles,
 		EstadoEstudiante:     ctx.Estado,
+		SemestreEstudiante:   ctx.Semestre,
 	}, "", nil
 }
 
