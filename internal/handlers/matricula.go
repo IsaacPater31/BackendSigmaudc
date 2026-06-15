@@ -3630,12 +3630,13 @@ func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r
 }
 
 type solicitudGrupoAgregar struct {
-	GrupoID          int    `json:"grupo_id"`
-	GrupoCodigo      string `json:"grupo_codigo"`
-	AsignaturaID     int    `json:"asignatura_id"`
-	AsignaturaCodigo string `json:"asignatura_codigo"`
-	AsignaturaNombre string `json:"asignatura_nombre"`
-	Creditos         int    `json:"creditos"`
+	GrupoID          int                        `json:"grupo_id"`
+	GrupoCodigo      string                     `json:"grupo_codigo"`
+	AsignaturaID     int                        `json:"asignatura_id"`
+	AsignaturaCodigo string                     `json:"asignatura_codigo"`
+	AsignaturaNombre string                     `json:"asignatura_nombre"`
+	Creditos         int                        `json:"creditos"`
+	Horarios         []models.HorarioDisponible `json:"horarios,omitempty"`
 }
 
 type solicitudGrupoRetirar struct {
@@ -3693,6 +3694,22 @@ type vistaPreviaHistorialParams struct {
 	retirar            []solicitudGrupoRetirar
 }
 
+func (h *MatriculaHandler) adjuntarHorariosAgregar(items []solicitudGrupoAgregar) []solicitudGrupoAgregar {
+	grupoIDs := make([]int, 0, len(items))
+	for _, a := range items {
+		if a.GrupoID > 0 {
+			grupoIDs = append(grupoIDs, a.GrupoID)
+		}
+	}
+	horariosPorGrupo, _ := h.fetchHorariosForGroups(grupoIDs)
+	for i := range items {
+		if items[i].GrupoID > 0 {
+			items[i].Horarios = toModelHorarios(horariosPorGrupo[items[i].GrupoID])
+		}
+	}
+	return items
+}
+
 func (h *MatriculaHandler) adjuntarHorariosRetiro(items []solicitudGrupoRetirar) []solicitudGrupoRetirar {
 	grupoIDs := make([]int, 0, len(items))
 	for _, r := range items {
@@ -3710,7 +3727,7 @@ func (h *MatriculaHandler) adjuntarHorariosRetiro(items []solicitudGrupoRetirar)
 }
 
 func (h *MatriculaHandler) responderVistaPreviaHistorial(w http.ResponseWriter, p vistaPreviaHistorialParams) {
-	agregar := h.enriquecerGruposSolicitud(p.agregar)
+	agregar := h.adjuntarHorariosAgregar(h.enriquecerGruposSolicitud(p.agregar))
 	retirar := h.adjuntarHorariosRetiro(h.enriquecerGruposRetiroSolicitud(p.retirar))
 
 	matriculaActual := p.matriculaActual
