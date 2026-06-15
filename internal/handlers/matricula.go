@@ -1815,6 +1815,67 @@ func horariosOverlap(a, b horarioBloque) bool {
 	return !(a.FinMin <= b.InicioMin || b.FinMin <= a.InicioMin)
 }
 
+func formatHoraDisplay(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	parts := strings.Split(value, ":")
+	if len(parts) >= 2 {
+		return fmt.Sprintf("%s:%s", parts[0], parts[1])
+	}
+	return value
+}
+
+func diaDisplay(dia string) string {
+	switch strings.ToUpper(strings.TrimSpace(dia)) {
+	case "LUNES":
+		return "lunes"
+	case "MARTES":
+		return "martes"
+	case "MIERCOLES":
+		return "miércoles"
+	case "JUEVES":
+		return "jueves"
+	case "VIERNES":
+		return "viernes"
+	case "SABADO":
+		return "sábado"
+	case "DOMINGO":
+		return "domingo"
+	default:
+		return strings.ToLower(dia)
+	}
+}
+
+func minutosAHoraDisplay(min int) string {
+	if min < 0 {
+		min = 0
+	}
+	return fmt.Sprintf("%02d:%02d", min/60, min%60)
+}
+
+func mensajeConflictoHorario(a, b bloqueHorarioDetallado) string {
+	inicio := a.InicioMin
+	if b.InicioMin > inicio {
+		inicio = b.InicioMin
+	}
+	fin := a.FinMin
+	if b.FinMin < fin {
+		fin = b.FinMin
+	}
+	return fmt.Sprintf(
+		"Choque el %s de %s a %s entre %s (%s) y %s (%s).",
+		diaDisplay(a.Dia),
+		minutosAHoraDisplay(inicio),
+		minutosAHoraDisplay(fin),
+		a.Nombre,
+		a.GrupoCodigo,
+		b.Nombre,
+		b.GrupoCodigo,
+	)
+}
+
 func assignmentDisplay(id int, asigMap map[int]models.AsignaturaCompleta) string {
 	if asig, ok := asigMap[id]; ok {
 		return fmt.Sprintf("%s %s", asig.Codigo, asig.Nombre)
@@ -3600,6 +3661,7 @@ type conflictoHorarioDetalle struct {
 	Grupo1Codigo string `json:"grupo1_codigo"`
 	Asignatura2  string `json:"asignatura2"`
 	Grupo2Codigo string `json:"grupo2_codigo"`
+	Mensaje      string `json:"mensaje"`
 }
 
 type creditosVistaPrevia struct {
@@ -3613,26 +3675,47 @@ type creditosVistaPrevia struct {
 type bloqueHorarioDetallado struct {
 	horarioBloque
 	GrupoCodigo string
-	Asignatura  string
+	Nombre      string
 	HoraInicio  string
 	HoraFin     string
 }
 
 func detectarConflictosHorario(bloques []bloqueHorarioDetallado) []conflictoHorarioDetalle {
 	var conflictos []conflictoHorarioDetalle
+	vistos := make(map[string]struct{})
 	for i := 0; i < len(bloques); i++ {
 		for j := i + 1; j < len(bloques); j++ {
-			if horariosOverlap(bloques[i].horarioBloque, bloques[j].horarioBloque) {
-				conflictos = append(conflictos, conflictoHorarioDetalle{
-					Dia:          bloques[i].Dia,
-					HoraInicio:   bloques[i].HoraInicio,
-					HoraFin:      bloques[i].HoraFin,
-					Asignatura1:  bloques[i].Asignatura,
-					Grupo1Codigo: bloques[i].GrupoCodigo,
-					Asignatura2:  bloques[j].Asignatura,
-					Grupo2Codigo: bloques[j].GrupoCodigo,
-				})
+			if !horariosOverlap(bloques[i].horarioBloque, bloques[j].horarioBloque) {
+				continue
 			}
+			g1, g2 := bloques[i].GrupoCodigo, bloques[j].GrupoCodigo
+			if g1 > g2 {
+				g1, g2 = g2, g1
+			}
+			par := g1 + "|" + g2 + "|" + bloques[i].Dia
+			if _, ok := vistos[par]; ok {
+				continue
+			}
+			vistos[par] = struct{}{}
+
+			inicio := bloques[i].InicioMin
+			if bloques[j].InicioMin > inicio {
+				inicio = bloques[j].InicioMin
+			}
+			fin := bloques[i].FinMin
+			if bloques[j].FinMin < fin {
+				fin = bloques[j].FinMin
+			}
+			conflictos = append(conflictos, conflictoHorarioDetalle{
+				Dia:          bloques[i].Dia,
+				HoraInicio:   minutosAHoraDisplay(inicio),
+				HoraFin:      minutosAHoraDisplay(fin),
+				Asignatura1:  bloques[i].Nombre,
+				Grupo1Codigo: bloques[i].GrupoCodigo,
+				Asignatura2:  bloques[j].Nombre,
+				Grupo2Codigo: bloques[j].GrupoCodigo,
+				Mensaje:      mensajeConflictoHorario(bloques[i], bloques[j]),
+			})
 		}
 	}
 	return conflictos
@@ -3655,9 +3738,9 @@ func materiasABloquesDetallados(materias []materiaVistaPrevia) []bloqueHorarioDe
 					FinMin:    fin,
 				},
 				GrupoCodigo: m.GrupoCodigo,
-				Asignatura:  fmt.Sprintf("%s %s", m.Codigo, m.Nombre),
-				HoraInicio:  h.HoraInicio,
-				HoraFin:     h.HoraFin,
+				Nombre:      m.Nombre,
+				HoraInicio:  formatHoraDisplay(h.HoraInicio),
+				HoraFin:     formatHoraDisplay(h.HoraFin),
 			})
 		}
 	}
@@ -3871,11 +3954,19 @@ func (h *MatriculaHandler) GetSolicitudVistaPrevia(w http.ResponseWriter, r *htt
 
 	conflictos := detectarConflictosHorario(materiasABloquesDetallados(matriculaProyectada))
 	for _, c := range conflictos {
-		advertencias = append(advertencias, fmt.Sprintf(
-			"Conflicto de horario %s %s–%s: %s (%s) vs %s (%s).",
-			c.Dia, c.HoraInicio, c.HoraFin, c.Asignatura1, c.Grupo1Codigo, c.Asignatura2, c.Grupo2Codigo,
-		))
+		if c.Mensaje != "" {
+			advertencias = append(advertencias, c.Mensaje)
+		} else {
+			advertencias = append(advertencias, fmt.Sprintf(
+				"Choque el %s de %s a %s entre %s (%s) y %s (%s).",
+				diaDisplay(c.Dia), c.HoraInicio, c.HoraFin,
+				c.Asignatura1, c.Grupo1Codigo, c.Asignatura2, c.Grupo2Codigo,
+			))
+		}
 	}
+
+	agregar = h.enriquecerGruposSolicitud(agregar)
+	retirar = h.enriquecerGruposRetiroSolicitud(retirar)
 
 	if matriculaActual == nil {
 		matriculaActual = []models.MateriaMatriculada{}
@@ -3932,11 +4023,68 @@ func toModelHorarios(horarios []HorarioDisponible) []models.HorarioDisponible {
 	for _, h := range horarios {
 		result = append(result, models.HorarioDisponible{
 			Dia:        h.Dia,
-			HoraInicio: h.HoraInicio,
-			HoraFin:    h.HoraFin,
+			HoraInicio: formatHoraDisplay(h.HoraInicio),
+			HoraFin:    formatHoraDisplay(h.HoraFin),
 			Salon:      h.Salon,
 			Componente: h.Componente,
 		})
 	}
 	return result
+}
+
+func (h *MatriculaHandler) enriquecerGruposSolicitud(items []solicitudGrupoAgregar) []solicitudGrupoAgregar {
+	for i := range items {
+		if items[i].GrupoID <= 0 {
+			continue
+		}
+		var codigo, nombre, grupoCodigo string
+		var creditos int
+		err := h.db.QueryRow(`
+			SELECT g.codigo, a.codigo, a.nombre, a.creditos
+			FROM grupo g
+			JOIN asignatura a ON a.id = g.asignatura_id
+			WHERE g.id = $1
+		`, items[i].GrupoID).Scan(&grupoCodigo, &codigo, &nombre, &creditos)
+		if err != nil {
+			continue
+		}
+		items[i].GrupoCodigo = grupoCodigo
+		items[i].AsignaturaCodigo = codigo
+		items[i].AsignaturaNombre = nombre
+		if items[i].Creditos == 0 {
+			items[i].Creditos = creditos
+		}
+	}
+	return items
+}
+
+func (h *MatriculaHandler) enriquecerGruposRetiroSolicitud(items []solicitudGrupoRetirar) []solicitudGrupoRetirar {
+	for i := range items {
+		grupoID := items[i].GrupoID
+		if grupoID <= 0 && items[i].HistorialID > 0 {
+			_ = h.db.QueryRow(`SELECT grupo_id FROM historial_academico WHERE id = $1`, items[i].HistorialID).Scan(&grupoID)
+		}
+		if grupoID <= 0 {
+			continue
+		}
+		var codigo, nombre, grupoCodigo string
+		var creditos int
+		err := h.db.QueryRow(`
+			SELECT g.codigo, a.codigo, a.nombre, a.creditos
+			FROM grupo g
+			JOIN asignatura a ON a.id = g.asignatura_id
+			WHERE g.id = $1
+		`, grupoID).Scan(&grupoCodigo, &codigo, &nombre, &creditos)
+		if err != nil {
+			continue
+		}
+		items[i].GrupoID = grupoID
+		items[i].GrupoCodigo = grupoCodigo
+		items[i].AsignaturaCodigo = codigo
+		items[i].AsignaturaNombre = nombre
+		if items[i].Creditos == 0 {
+			items[i].Creditos = creditos
+		}
+	}
+	return items
 }
