@@ -96,6 +96,7 @@ type HorarioDisponible struct {
 	HoraInicio string `json:"hora_inicio"`
 	HoraFin    string `json:"hora_fin"`
 	Salon      string `json:"salon"`
+	Componente string `json:"componente"`
 }
 
 type GrupoPensum struct {
@@ -106,6 +107,7 @@ type GrupoPensum struct {
 	AsignaturaNombre string              `json:"asignatura_nombre"`
 	Semestre         int                 `json:"semestre"`
 	Creditos         int                 `json:"creditos"`
+	TieneLaboratorio bool                `json:"tiene_laboratorio"`
 	Docente          string              `json:"docente"`
 	CupoDisponible   int                 `json:"cupo_disponible"`
 	CupoMax          int                 `json:"cupo_max"`

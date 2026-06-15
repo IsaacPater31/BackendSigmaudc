@@ -45,6 +45,12 @@ const (
 
 	// EstadoSolicitudModificacionPendiente indica que la solicitud está en revisión.
 	EstadoSolicitudModificacionPendiente = "pendiente"
+
+	// ComponenteTeoria identifica un bloque de horario de clase teórica.
+	ComponenteTeoria = "teoria"
+
+	// ComponenteLaboratorio identifica un bloque de horario de laboratorio.
+	ComponenteLaboratorio = "laboratorio"
 )
 
 // ─── Mensajes de matrícula ───────────────────────────────────────────────────
@@ -53,6 +59,9 @@ const (
 	// MsgInscripcionModificacionPendiente se muestra cuando el estudiante intenta
 	// inscribir con una solicitud de modificación activa en el periodo.
 	MsgInscripcionModificacionPendiente = "No puedes inscribir asignaturas porque tienes una solicitud de modificación pendiente de revisión. Debes esperar a que el jefe de departamento apruebe o rechace tu solicitud antes de realizar nuevas inscripciones, ya que esto afecta tus créditos matriculados."
+
+	// MsgGrupoHorarioIncompleto se muestra cuando un grupo no cumple la regla teoría + lab.
+	MsgGrupoHorarioIncompleto = "El grupo %s no tiene horario completo (teoría y laboratorio). Contacta a la jefatura de departamento."
 )
 
 // ─── Límites de archivos ──────────────────────────────────────────────────────

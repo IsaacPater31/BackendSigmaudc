@@ -43,6 +43,7 @@ type HorarioDisponible struct {
 	HoraInicio string `json:"hora_inicio"`
 	HoraFin    string `json:"hora_fin"`
 	Salon      string `json:"salon"`
+	Componente string `json:"componente"`
 }
 
 type GrupoDisponible struct {
@@ -128,6 +129,96 @@ type horarioBloque struct {
 	Dia       string
 	InicioMin int
 	FinMin    int
+}
+
+func normalizarComponente(componente string) string {
+	if componente == constants.ComponenteLaboratorio {
+		return constants.ComponenteLaboratorio
+	}
+	return constants.ComponenteTeoria
+}
+
+func horarioGrupoValido(tieneLab bool, teoriaCount, labCount int) bool {
+	if tieneLab {
+		return teoriaCount == 1 && labCount == 1
+	}
+	return teoriaCount >= 1 && labCount == 0
+}
+
+func horarioGrupoValidoDesdeLista(tieneLab bool, horarios []HorarioDisponible) bool {
+	teoria, lab := 0, 0
+	for _, h := range horarios {
+		if normalizarComponente(h.Componente) == constants.ComponenteLaboratorio {
+			lab++
+		} else {
+			teoria++
+		}
+	}
+	return horarioGrupoValido(tieneLab, teoria, lab)
+}
+
+type horarioPayloadItem struct {
+	Dia        string
+	HoraInicio string
+	HoraFin    string
+	Salon      string
+	Componente string
+}
+
+func validarPayloadHorarios(tieneLab bool, horarios []horarioPayloadItem) error {
+	teoria, lab := 0, 0
+	for _, h := range horarios {
+		comp := normalizarComponente(h.Componente)
+		if comp == constants.ComponenteLaboratorio {
+			lab++
+		} else {
+			teoria++
+		}
+	}
+	if !horarioGrupoValido(tieneLab, teoria, lab) {
+		if tieneLab {
+			return fmt.Errorf("asignaturas con laboratorio requieren exactamente un bloque de teoría y uno de laboratorio")
+		}
+		if lab > 0 {
+			return fmt.Errorf("asignaturas sin laboratorio no pueden tener bloque de laboratorio")
+		}
+		return fmt.Errorf("el grupo debe tener al menos un bloque de horario de teoría")
+	}
+	return nil
+}
+
+func (h *MatriculaHandler) validateGroupsHorarioCompleto(groupIDs []int) error {
+	if len(groupIDs) == 0 {
+		return nil
+	}
+	query := `
+		SELECT g.codigo, a.tiene_laboratorio,
+			COUNT(hg.id) FILTER (WHERE hg.componente = 'teoria') AS n_teoria,
+			COUNT(hg.id) FILTER (WHERE hg.componente = 'laboratorio') AS n_lab
+		FROM grupo g
+		JOIN asignatura a ON a.id = g.asignatura_id
+		LEFT JOIN horario_grupo hg ON hg.grupo_id = g.id
+		WHERE g.id = ANY($1)
+		GROUP BY g.id, g.codigo, a.tiene_laboratorio
+	`
+	rows, err := h.db.Query(query, pq.Array(groupIDs))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var codigo string
+		var tieneLab bool
+		var nTeoria, nLab int
+		if err := rows.Scan(&codigo, &tieneLab, &nTeoria, &nLab); err != nil {
+			return err
+		}
+		if !horarioGrupoValido(tieneLab, nTeoria, nLab) {
+			return fmt.Errorf(constants.MsgGrupoHorarioIncompleto, codigo)
+		}
+	}
+	return rows.Err()
 }
 
 func NewMatriculaHandler(db *sql.DB, service *services.MatriculaService) *MatriculaHandler {
@@ -329,7 +420,7 @@ func (h *MatriculaHandler) GetAsignaturasDisponibles(w http.ResponseWriter, r *h
 		grupos := gruposMap[asig.ID]
 		conCupo := false
 		for _, grupo := range grupos {
-			if grupo.CupoDisponible > 0 {
+			if grupo.CupoDisponible > 0 && horarioGrupoValidoDesdeLista(asig.TieneLaboratorio, grupo.Horarios) {
 				conCupo = true
 				break
 			}
@@ -516,17 +607,50 @@ func (h *MatriculaHandler) UpdateGrupoHorario(w http.ResponseWriter, r *http.Req
 	}
 
 	payload := struct {
-		Docente  *string `json:"docente"` // Nuevo campo opcional para docente
+		Docente  *string `json:"docente"`
 		Horarios []struct {
 			Dia        string `json:"dia"`
 			HoraInicio string `json:"hora_inicio"`
 			HoraFin    string `json:"hora_fin"`
 			Salon      string `json:"salon"`
+			Componente string `json:"componente"`
 		} `json:"horarios"`
 	}{}
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "Payload inválido", http.StatusBadRequest)
+		return
+	}
+
+	var tieneLab bool
+	err = h.db.QueryRow(`
+		SELECT COALESCE(a.tiene_laboratorio, false)
+		FROM grupo g
+		JOIN asignatura a ON a.id = g.asignatura_id
+		WHERE g.id = $1
+	`, grupoID).Scan(&tieneLab)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "Grupo no encontrado", http.StatusNotFound)
+			return
+		}
+		log.Printf("Error obteniendo asignatura del grupo %d: %v", grupoID, err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	payloadItems := make([]horarioPayloadItem, 0, len(payload.Horarios))
+	for _, hItem := range payload.Horarios {
+		payloadItems = append(payloadItems, horarioPayloadItem{
+			Dia:        hItem.Dia,
+			HoraInicio: hItem.HoraInicio,
+			HoraFin:    hItem.HoraFin,
+			Salon:      hItem.Salon,
+			Componente: hItem.Componente,
+		})
+	}
+	if err := validarPayloadHorarios(tieneLab, payloadItems); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -552,9 +676,9 @@ func (h *MatriculaHandler) UpdateGrupoHorario(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	// Obtener los días que ya tienen horario para este grupo
-	existingDays := make(map[string]int) // dia -> id del registro
-	rows, err := tx.Query(`SELECT id, dia FROM horario_grupo WHERE grupo_id = $1`, grupoID)
+	// Obtener horarios existentes indexados por componente+día
+	existingKeys := make(map[string]int) // "componente|dia" -> id
+	rows, err := tx.Query(`SELECT id, dia, componente FROM horario_grupo WHERE grupo_id = $1`, grupoID)
 	if err != nil {
 		log.Printf("Error obteniendo horarios existentes para grupo %d: %v", grupoID, err)
 		tx.Rollback()
@@ -563,54 +687,37 @@ func (h *MatriculaHandler) UpdateGrupoHorario(w http.ResponseWriter, r *http.Req
 	}
 	for rows.Next() {
 		var id int
-		var dia string
-		if err := rows.Scan(&id, &dia); err != nil {
+		var dia, componente string
+		if err := rows.Scan(&id, &dia, &componente); err != nil {
 			rows.Close()
 			tx.Rollback()
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		existingDays[dia] = id
+		key := normalizarComponente(componente) + "|" + dia
+		existingKeys[key] = id
 	}
 	rows.Close()
 
-	// Consolidar horarios por día (un solo horario por día)
-	horariosPorDia := make(map[string]struct {
-		HoraInicio string
-		HoraFin    string
-		Salon      string
-	})
-	for _, hItem := range payload.Horarios {
-		horariosPorDia[hItem.Dia] = struct {
-			HoraInicio string
-			HoraFin    string
-			Salon      string
-		}{
-			HoraInicio: hItem.HoraInicio,
-			HoraFin:    hItem.HoraFin,
-			Salon:      hItem.Salon,
-		}
-	}
-
 	// Procesar cada horario del payload
-	for dia, hItem := range horariosPorDia {
-		if existingID, exists := existingDays[dia]; exists {
-			// UPDATE: el día ya existe, actualizar horas y salón
-			_, err := tx.Exec(`UPDATE horario_grupo SET hora_inicio = $1, hora_fin = $2, salon = $3 WHERE id = $4`,
-				hItem.HoraInicio, hItem.HoraFin, hItem.Salon, existingID)
+	for _, hItem := range payloadItems {
+		comp := normalizarComponente(hItem.Componente)
+		key := comp + "|" + hItem.Dia
+		if existingID, exists := existingKeys[key]; exists {
+			_, err := tx.Exec(`UPDATE horario_grupo SET hora_inicio = $1, hora_fin = $2, salon = $3, componente = $4 WHERE id = $5`,
+				hItem.HoraInicio, hItem.HoraFin, hItem.Salon, comp, existingID)
 			if err != nil {
-				log.Printf("Error actualizando horario para grupo %d, día %s: %v", grupoID, dia, err)
+				log.Printf("Error actualizando horario para grupo %d (%s): %v", grupoID, key, err)
 				tx.Rollback()
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
 			}
-			delete(existingDays, dia) // Marcar como procesado
+			delete(existingKeys, key)
 		} else {
-			// INSERT: el día no existe, insertar nuevo horario
-			_, err := tx.Exec(`INSERT INTO horario_grupo (grupo_id, dia, hora_inicio, hora_fin, salon) VALUES ($1, $2, $3, $4, $5)`,
-				grupoID, dia, hItem.HoraInicio, hItem.HoraFin, hItem.Salon)
+			_, err := tx.Exec(`INSERT INTO horario_grupo (grupo_id, dia, hora_inicio, hora_fin, salon, componente) VALUES ($1, $2, $3, $4, $5, $6)`,
+				grupoID, hItem.Dia, hItem.HoraInicio, hItem.HoraFin, hItem.Salon, comp)
 			if err != nil {
-				log.Printf("Error insertando horario para grupo %d, día %s: %v", grupoID, dia, err)
+				log.Printf("Error insertando horario para grupo %d (%s): %v", grupoID, key, err)
 				tx.Rollback()
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
@@ -618,11 +725,11 @@ func (h *MatriculaHandler) UpdateGrupoHorario(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	// DELETE: eliminar los días que ya no están en el payload
-	for dia, existingID := range existingDays {
+	// DELETE: eliminar bloques que ya no están en el payload
+	for _, existingID := range existingKeys {
 		_, err := tx.Exec(`DELETE FROM horario_grupo WHERE id = $1`, existingID)
 		if err != nil {
-			log.Printf("Error eliminando horario para grupo %d, día %s: %v", grupoID, dia, err)
+			log.Printf("Error eliminando horario id %d del grupo %d: %v", existingID, grupoID, err)
 			tx.Rollback()
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
@@ -908,6 +1015,11 @@ func (h *MatriculaHandler) InscribirAsignaturas(w http.ResponseWriter, r *http.R
 
 	if len(selectedGroups) != len(uniqueGrupoIDs) {
 		http.Error(w, "Algunos grupos solicitados no existen o no pertenecen al periodo activo.", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.validateGroupsHorarioCompleto(uniqueGrupoIDs); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
 
@@ -1293,6 +1405,11 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 		return
 	}
 
+	if err := h.validateGroupsHorarioCompleto(uniqueGrupoIDs); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+
 	// Basic conflict check: ensure no schedule overlap with existing matriculas
 	existingHorarios, err := h.fetchHorariosInscritos(estudianteID, periodo.ID)
 	if err != nil {
@@ -1507,6 +1624,10 @@ func (h *MatriculaHandler) fetchGroupsForAsignaturas(periodoID int, asignaturas 
 
 	groupIDs := make([]int, 0)
 	temp := make(map[int][]GrupoDisponible)
+	tieneLabMap := make(map[int]bool, len(asignaturas))
+	for _, asig := range asignaturas {
+		tieneLabMap[asig.ID] = asig.TieneLaboratorio
+	}
 	for rows.Next() {
 		var g GrupoDisponible
 		var asignaturaID int
@@ -1533,10 +1654,14 @@ func (h *MatriculaHandler) fetchGroupsForAsignaturas(periodoID int, asignaturas 
 	}
 
 	for asignaturaID, grupos := range temp {
+		validos := make([]GrupoDisponible, 0, len(grupos))
 		for i := range grupos {
 			grupos[i].Horarios = horariosMap[grupos[i].ID]
+			if horarioGrupoValidoDesdeLista(tieneLabMap[asignaturaID], grupos[i].Horarios) {
+				validos = append(validos, grupos[i])
+			}
 		}
-		result[asignaturaID] = grupos
+		result[asignaturaID] = validos
 	}
 
 	return result, nil
@@ -1548,7 +1673,7 @@ func (h *MatriculaHandler) fetchHorariosForGroups(groupIDs []int) (map[int][]Hor
 		return horarios, nil
 	}
 	query := `
-		SELECT grupo_id, dia, hora_inicio::text, hora_fin::text, salon
+		SELECT grupo_id, dia, hora_inicio::text, hora_fin::text, salon, COALESCE(componente, 'teoria')
 		FROM horario_grupo
 		WHERE grupo_id = ANY($1)
 	`
@@ -1560,8 +1685,8 @@ func (h *MatriculaHandler) fetchHorariosForGroups(groupIDs []int) (map[int][]Hor
 
 	for rows.Next() {
 		var grupoID int
-		var dia, inicio, fin, salon string
-		if err := rows.Scan(&grupoID, &dia, &inicio, &fin, &salon); err != nil {
+		var dia, inicio, fin, salon, componente string
+		if err := rows.Scan(&grupoID, &dia, &inicio, &fin, &salon, &componente); err != nil {
 			return nil, err
 		}
 		horarios[grupoID] = append(horarios[grupoID], HorarioDisponible{
@@ -1569,6 +1694,7 @@ func (h *MatriculaHandler) fetchHorariosForGroups(groupIDs []int) (map[int][]Hor
 			HoraInicio: inicio,
 			HoraFin:    fin,
 			Salon:      salon,
+			Componente: componente,
 		})
 	}
 
@@ -2073,7 +2199,7 @@ func (h *MatriculaHandler) getAsignaturasDisponiblesModificaciones(ctx *inscripc
 			// Filtrar grupos sin cupo y agregar información del programa a cada grupo
 			gruposConCupo := []GrupoDisponible{}
 			for _, grupo := range grupos {
-				if grupo.CupoDisponible > 0 {
+				if grupo.CupoDisponible > 0 && horarioGrupoValidoDesdeLista(asig.TieneLaboratorio, grupo.Horarios) {
 					// Obtener programa asociado al grupo
 					progInfo, err := h.fetchProgramaPorGrupo(grupo.ID, asig.ID)
 					if err == nil && progInfo != nil {
@@ -2500,6 +2626,11 @@ func (h *MatriculaHandler) AgregarMateriaModificaciones(w http.ResponseWriter, r
 
 	if len(selectedGroups) != len(uniqueGrupoIDs) {
 		http.Error(w, "Algunos grupos solicitados no existen o no pertenecen al periodo activo.", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.validateGroupsHorarioCompleto(uniqueGrupoIDs); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
 
@@ -2990,6 +3121,22 @@ func (h *MatriculaHandler) CrearSolicitudModificacion(w http.ResponseWriter, r *
 		return
 	}
 
+	var agregarValidacion []struct {
+		GrupoID int `json:"grupo_id"`
+	}
+	if err := json.Unmarshal(payload.GruposAgregar, &agregarValidacion); err == nil && len(agregarValidacion) > 0 {
+		grupoIDs := make([]int, 0, len(agregarValidacion))
+		for _, a := range agregarValidacion {
+			if a.GrupoID > 0 {
+				grupoIDs = append(grupoIDs, a.GrupoID)
+			}
+		}
+		if err := h.validateGroupsHorarioCompleto(grupoIDs); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+	}
+
 	var solicitudID int
 	err = h.db.QueryRow(`
 		INSERT INTO solicitud_modificacion (estudiante_id, programa_id, periodo_id, grupos_agregar, grupos_retirar, estado)
@@ -3243,6 +3390,22 @@ func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r
 			return
 		}
 
+		var agregarPreview []struct {
+			GrupoID int `json:"grupo_id"`
+		}
+		if err := json.Unmarshal(gruposAgregar, &agregarPreview); err == nil && len(agregarPreview) > 0 {
+			grupoIDs := make([]int, 0, len(agregarPreview))
+			for _, a := range agregarPreview {
+				if a.GrupoID > 0 {
+					grupoIDs = append(grupoIDs, a.GrupoID)
+				}
+			}
+			if err := h.validateGroupsHorarioCompleto(grupoIDs); err != nil {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
+		}
+
 		tx, err := h.db.Begin()
 		if err != nil {
 			log.Printf("Error iniciando transacción: %v", err)
@@ -3403,4 +3566,377 @@ func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r
 		"success": true,
 		"mensaje": "Solicitud " + payload.Estado + " exitosamente",
 	})
+}
+
+type solicitudGrupoAgregar struct {
+	GrupoID          int    `json:"grupo_id"`
+	GrupoCodigo      string `json:"grupo_codigo"`
+	AsignaturaID     int    `json:"asignatura_id"`
+	AsignaturaCodigo string `json:"asignatura_codigo"`
+	AsignaturaNombre string `json:"asignatura_nombre"`
+	Creditos         int    `json:"creditos"`
+}
+
+type solicitudGrupoRetirar struct {
+	HistorialID      int    `json:"historial_id"`
+	GrupoID          int    `json:"grupo_id"`
+	GrupoCodigo      string `json:"grupo_codigo"`
+	AsignaturaID     int    `json:"asignatura_id"`
+	AsignaturaCodigo string `json:"asignatura_codigo"`
+	AsignaturaNombre string `json:"asignatura_nombre"`
+	Creditos         int    `json:"creditos"`
+}
+
+type materiaVistaPrevia struct {
+	models.MateriaMatriculada
+	Cambio string `json:"cambio"` // mantener | agregar
+}
+
+type conflictoHorarioDetalle struct {
+	Dia          string `json:"dia"`
+	HoraInicio   string `json:"hora_inicio"`
+	HoraFin      string `json:"hora_fin"`
+	Asignatura1  string `json:"asignatura1"`
+	Grupo1Codigo string `json:"grupo1_codigo"`
+	Asignatura2  string `json:"asignatura2"`
+	Grupo2Codigo string `json:"grupo2_codigo"`
+}
+
+type creditosVistaPrevia struct {
+	Maximo                int `json:"maximo"`
+	InscritosActual       int `json:"inscritos_actual"`
+	InscritosProyectado   int `json:"inscritos_proyectado"`
+	DisponiblesProyectado int `json:"disponibles_proyectado"`
+	Delta                 int `json:"delta"`
+}
+
+type bloqueHorarioDetallado struct {
+	horarioBloque
+	GrupoCodigo string
+	Asignatura  string
+	HoraInicio  string
+	HoraFin     string
+}
+
+func detectarConflictosHorario(bloques []bloqueHorarioDetallado) []conflictoHorarioDetalle {
+	var conflictos []conflictoHorarioDetalle
+	for i := 0; i < len(bloques); i++ {
+		for j := i + 1; j < len(bloques); j++ {
+			if horariosOverlap(bloques[i].horarioBloque, bloques[j].horarioBloque) {
+				conflictos = append(conflictos, conflictoHorarioDetalle{
+					Dia:          bloques[i].Dia,
+					HoraInicio:   bloques[i].HoraInicio,
+					HoraFin:      bloques[i].HoraFin,
+					Asignatura1:  bloques[i].Asignatura,
+					Grupo1Codigo: bloques[i].GrupoCodigo,
+					Asignatura2:  bloques[j].Asignatura,
+					Grupo2Codigo: bloques[j].GrupoCodigo,
+				})
+			}
+		}
+	}
+	return conflictos
+}
+
+func materiasABloquesDetallados(materias []materiaVistaPrevia) []bloqueHorarioDetallado {
+	var bloques []bloqueHorarioDetallado
+	for _, m := range materias {
+		for _, h := range m.Horarios {
+			ini, err1 := convertTimeToMinutes(h.HoraInicio)
+			fin, err2 := convertTimeToMinutes(h.HoraFin)
+			if err1 != nil || err2 != nil {
+				continue
+			}
+			bloques = append(bloques, bloqueHorarioDetallado{
+				horarioBloque: horarioBloque{
+					GrupoID:   m.GrupoID,
+					Dia:       h.Dia,
+					InicioMin: ini,
+					FinMin:    fin,
+				},
+				GrupoCodigo: m.GrupoCodigo,
+				Asignatura:  fmt.Sprintf("%s %s", m.Codigo, m.Nombre),
+				HoraInicio:  h.HoraInicio,
+				HoraFin:     h.HoraFin,
+			})
+		}
+	}
+	return bloques
+}
+
+// GetSolicitudVistaPrevia devuelve matrícula actual, matrícula proyectada y alertas para revisión del jefe.
+func (h *MatriculaHandler) GetSolicitudVistaPrevia(w http.ResponseWriter, r *http.Request) {
+	claims, err := getClaims(r)
+	if err != nil {
+		http.Error(w, "Usuario no autenticado", http.StatusUnauthorized)
+		return
+	}
+
+	var jefeID int
+	err = h.db.QueryRow(`SELECT id FROM jefe_departamental WHERE usuario_id = $1`, claims.Sub).Scan(&jefeID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "Jefe departamental no encontrado", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Error verificando información del jefe", http.StatusInternalServerError)
+		return
+	}
+
+	solicitudID := mux.Vars(r)["id"]
+	var estudianteID, periodoID, programaID int
+	var estado string
+	var gruposAgregar, gruposRetirar json.RawMessage
+	err = h.db.QueryRow(`
+		SELECT estudiante_id, periodo_id, programa_id, estado, grupos_agregar, grupos_retirar
+		FROM solicitud_modificacion WHERE id = $1
+	`, solicitudID).Scan(&estudianteID, &periodoID, &programaID, &estado, &gruposAgregar, &gruposRetirar)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "Solicitud no encontrada", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Error obteniendo solicitud", http.StatusInternalServerError)
+		return
+	}
+	if programaID != claims.ProgramaID {
+		http.Error(w, "No tienes permisos para ver esta solicitud", http.StatusForbidden)
+		return
+	}
+
+	var estudianteNombre, estudianteApellido, estudianteCodigo, estudianteEstado string
+	var semestreEstudiante int
+	var promedio sql.NullFloat64
+	var pensumID int
+	err = h.db.QueryRow(`
+		SELECT e.nombre, e.apellido, u.codigo, e.semestre, e.estado, e.promedio, ep.pensum_id
+		FROM estudiante e
+		JOIN usuario u ON u.id = e.usuario_id
+		JOIN estudiante_pensum ep ON ep.estudiante_id = e.id
+		WHERE e.id = $1
+	`, estudianteID).Scan(&estudianteNombre, &estudianteApellido, &estudianteCodigo, &semestreEstudiante, &estudianteEstado, &promedio, &pensumID)
+	if err != nil {
+		http.Error(w, "Error obteniendo información del estudiante", http.StatusInternalServerError)
+		return
+	}
+
+	var periodo models.PeriodoAcademico
+	err = h.db.QueryRow(`
+		SELECT id, year, semestre, activo FROM periodo_academico WHERE id = $1
+	`, periodoID).Scan(&periodo.ID, &periodo.Year, &periodo.Semestre, &periodo.Activo)
+	if err != nil {
+		http.Error(w, "Error obteniendo periodo", http.StatusInternalServerError)
+		return
+	}
+
+	matriculaActual, err := h.service.GetMateriasMatriculadas(estudianteID, periodoID)
+	if err != nil {
+		http.Error(w, "Error obteniendo matrícula actual", http.StatusInternalServerError)
+		return
+	}
+
+	var agregar []solicitudGrupoAgregar
+	var retirar []solicitudGrupoRetirar
+	_ = json.Unmarshal(gruposAgregar, &agregar)
+	_ = json.Unmarshal(gruposRetirar, &retirar)
+
+	retirarGrupoIDs := make(map[int]struct{})
+	for _, r := range retirar {
+		if r.GrupoID > 0 {
+			retirarGrupoIDs[r.GrupoID] = struct{}{}
+		}
+	}
+
+	creditosRetirar := 0
+	for _, r := range retirar {
+		creditosRetirar += r.Creditos
+	}
+
+	var matriculaProyectada []materiaVistaPrevia
+	asignaturasProyectadas := make(map[int]struct{})
+	for _, m := range matriculaActual {
+		if _, retirada := retirarGrupoIDs[m.GrupoID]; retirada {
+			continue
+		}
+		matriculaProyectada = append(matriculaProyectada, materiaVistaPrevia{
+			MateriaMatriculada: m,
+			Cambio:             "mantener",
+		})
+		asignaturasProyectadas[m.AsignaturaID] = struct{}{}
+	}
+
+	agregarGrupoIDs := make([]int, 0, len(agregar))
+	creditosAgregar := 0
+	for _, a := range agregar {
+		if a.GrupoID > 0 {
+			agregarGrupoIDs = append(agregarGrupoIDs, a.GrupoID)
+			creditosAgregar += a.Creditos
+		}
+	}
+
+	horariosAgregar, _ := h.fetchHorariosForGroups(agregarGrupoIDs)
+	var advertencias []string
+
+	for _, a := range agregar {
+		if a.GrupoID <= 0 {
+			continue
+		}
+		if _, dup := asignaturasProyectadas[a.AsignaturaID]; dup {
+			advertencias = append(advertencias, fmt.Sprintf(
+				"%s ya estaría matriculada: no puede inscribirse dos veces la misma asignatura.",
+				a.AsignaturaCodigo,
+			))
+		}
+
+		var docente string
+		var cupoDisp, cupoMax int
+		var asigID, creditos int
+		var asigCodigo, asigNombre, grupoCodigo string
+		err := h.db.QueryRow(`
+			SELECT g.codigo, g.docente, g.cupo_disponible, g.cupo_max,
+			       a.id, a.codigo, a.nombre, a.creditos
+			FROM grupo g
+			JOIN asignatura a ON a.id = g.asignatura_id
+			WHERE g.id = $1
+		`, a.GrupoID).Scan(&grupoCodigo, &docente, &cupoDisp, &cupoMax, &asigID, &asigCodigo, &asigNombre, &creditos)
+		if err != nil {
+			advertencias = append(advertencias, fmt.Sprintf("El grupo %d ya no existe o no está disponible.", a.GrupoID))
+			continue
+		}
+		if cupoDisp <= 0 {
+			advertencias = append(advertencias, fmt.Sprintf("El grupo %s no tiene cupo disponible (0 de %d plazas).", grupoCodigo, cupoMax))
+		}
+		if a.AsignaturaCodigo == "" {
+			a.AsignaturaCodigo = asigCodigo
+		}
+		if a.AsignaturaNombre == "" {
+			a.AsignaturaNombre = asigNombre
+		}
+		if a.Creditos == 0 {
+			a.Creditos = creditos
+		}
+
+		var asigSemestre int
+		_ = h.db.QueryRow(`
+			SELECT COALESCE(MIN(pa.semestre), 0) FROM pensum_asignatura pa WHERE pa.asignatura_id = $1
+		`, asigID).Scan(&asigSemestre)
+		if !puedeAgregarAsignaturaEnModificaciones(asigSemestre, semestreEstudiante) {
+			advertencias = append(advertencias, mensajeSemestreNoPermitidoModificacion(a.AsignaturaCodigo))
+		}
+
+		horarios := horariosAgregar[a.GrupoID]
+		var tieneLab bool
+		_ = h.db.QueryRow(`SELECT tiene_laboratorio FROM asignatura WHERE id = $1`, asigID).Scan(&tieneLab)
+		if !horarioGrupoValidoDesdeLista(tieneLab, horarios) {
+			advertencias = append(advertencias, fmt.Sprintf(constants.MsgGrupoHorarioIncompleto, grupoCodigo))
+		}
+
+		matriculaProyectada = append(matriculaProyectada, materiaVistaPrevia{
+			MateriaMatriculada: models.MateriaMatriculada{
+				AsignaturaID: asigID,
+				Codigo:       a.AsignaturaCodigo,
+				Nombre:       a.AsignaturaNombre,
+				Creditos:     a.Creditos,
+				GrupoID:      a.GrupoID,
+				GrupoCodigo:  grupoCodigo,
+				Docente:      docente,
+				Horarios:     toModelHorarios(horarios),
+			},
+			Cambio: "agregar",
+		})
+		asignaturasProyectadas[asigID] = struct{}{}
+	}
+
+	creditosInscritos, err := h.fetchInscritosCredits(estudianteID, periodoID)
+	if err != nil {
+		http.Error(w, "Error calculando créditos", http.StatusInternalServerError)
+		return
+	}
+	creditosMax, err := h.fetchCreditLimit(pensumID, semestreEstudiante)
+	if err != nil {
+		http.Error(w, "Error calculando límite de créditos", http.StatusInternalServerError)
+		return
+	}
+	creditosProyectados := creditosInscritos - creditosRetirar + creditosAgregar
+	disponiblesProyectado := creditosMax - creditosProyectados
+	if disponiblesProyectado < 0 {
+		disponiblesProyectado = 0
+	}
+	if creditosProyectados > creditosMax {
+		advertencias = append(advertencias, fmt.Sprintf(
+			"La matrícula proyectada (%d cr) supera el límite de %d créditos para el semestre %d.",
+			creditosProyectados, creditosMax, semestreEstudiante,
+		))
+	}
+
+	conflictos := detectarConflictosHorario(materiasABloquesDetallados(matriculaProyectada))
+	for _, c := range conflictos {
+		advertencias = append(advertencias, fmt.Sprintf(
+			"Conflicto de horario %s %s–%s: %s (%s) vs %s (%s).",
+			c.Dia, c.HoraInicio, c.HoraFin, c.Asignatura1, c.Grupo1Codigo, c.Asignatura2, c.Grupo2Codigo,
+		))
+	}
+
+	if matriculaActual == nil {
+		matriculaActual = []models.MateriaMatriculada{}
+	}
+	if matriculaProyectada == nil {
+		matriculaProyectada = []materiaVistaPrevia{}
+	}
+	if advertencias == nil {
+		advertencias = []string{}
+	}
+	if conflictos == nil {
+		conflictos = []conflictoHorarioDetalle{}
+	}
+
+	estudianteResp := map[string]interface{}{
+		"id":       estudianteID,
+		"codigo":   estudianteCodigo,
+		"nombre":   estudianteNombre,
+		"apellido": estudianteApellido,
+		"semestre": semestreEstudiante,
+		"estado":   estudianteEstado,
+	}
+	if promedio.Valid {
+		estudianteResp["promedio"] = promedio.Float64
+	}
+
+	resp := map[string]interface{}{
+		"solicitud_id": solicitudID,
+		"estado":       estado,
+		"periodo":      periodo,
+		"estudiante":   estudianteResp,
+		"matricula_actual":     matriculaActual,
+		"matricula_proyectada": matriculaProyectada,
+		"materias_retiradas":   retirar,
+		"materias_agregar":     agregar,
+		"creditos": creditosVistaPrevia{
+			Maximo:                creditosMax,
+			InscritosActual:       creditosInscritos,
+			InscritosProyectado:   creditosProyectados,
+			DisponiblesProyectado: disponiblesProyectado,
+			Delta:                 creditosProyectados - creditosInscritos,
+		},
+		"conflictos_horario": conflictos,
+		"advertencias":       advertencias,
+		"puede_aprobar":      len(advertencias) == 0 && estado == "pendiente",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func toModelHorarios(horarios []HorarioDisponible) []models.HorarioDisponible {
+	result := make([]models.HorarioDisponible, 0, len(horarios))
+	for _, h := range horarios {
+		result = append(result, models.HorarioDisponible{
+			Dia:        h.Dia,
+			HoraInicio: h.HoraInicio,
+			HoraFin:    h.HoraFin,
+			Salon:      h.Salon,
+			Componente: h.Componente,
+		})
+	}
+	return result
 }

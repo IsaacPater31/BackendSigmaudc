@@ -267,7 +267,7 @@ func (r *MatriculaRepository) GetHorariosForGroups(groupIDs []int) (map[int][]mo
 		return horarios, nil
 	}
 	query := `
-		SELECT grupo_id, dia, hora_inicio::text, hora_fin::text, salon
+		SELECT grupo_id, dia, hora_inicio::text, hora_fin::text, salon, COALESCE(componente, 'teoria')
 		FROM horario_grupo
 		WHERE grupo_id = ANY($1)
 	`
@@ -280,7 +280,7 @@ func (r *MatriculaRepository) GetHorariosForGroups(groupIDs []int) (map[int][]mo
 	for rows.Next() {
 		var grupoID int
 		var horario models.HorarioDisponible
-		if err := rows.Scan(&grupoID, &horario.Dia, &horario.HoraInicio, &horario.HoraFin, &horario.Salon); err != nil {
+		if err := rows.Scan(&grupoID, &horario.Dia, &horario.HoraInicio, &horario.HoraFin, &horario.Salon, &horario.Componente); err != nil {
 			return nil, err
 		}
 		horarios[grupoID] = append(horarios[grupoID], horario)

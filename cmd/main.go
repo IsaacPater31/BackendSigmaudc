@@ -148,6 +148,7 @@ func main() {
 	estudianteRoutes.HandleFunc("/matricula/solicitudes-modificacion", matriculaHandler.GetSolicitudesEstudiante).Methods("GET")
 	estudianteRoutes.HandleFunc("/matricula/solicitudes-modificacion", matriculaHandler.CrearSolicitudModificacion).Methods("POST")
 	jefeRoutes.HandleFunc("/jefe/solicitudes-modificacion", matriculaHandler.GetSolicitudesPorPrograma).Methods("GET")
+	jefeRoutes.HandleFunc("/jefe/solicitudes-modificacion/{id}/vista-previa", matriculaHandler.GetSolicitudVistaPrevia).Methods("GET")
 	jefeRoutes.HandleFunc("/jefe/solicitudes-modificacion/{id}", matriculaHandler.ValidarSolicitudModificacion).Methods("PUT")
 	protected.HandleFunc("/matricula/modificaciones/stream", matriculaHandler.StreamModificacionesEvents).Methods("GET")
 

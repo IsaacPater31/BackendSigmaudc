@@ -140,7 +140,7 @@ func (r *PensumRepository) ListPensums() ([]models.PensumItem, error) {
 }
 
 func (r *PensumRepository) GetGruposPensum(pensumID, periodoID int) ([]models.GrupoPensum, []int, error) {
-	query := `SELECT g.id, g.codigo, a.id, a.codigo, a.nombre, COALESCE(pa.semestre, 0), a.creditos, COALESCE(g.docente, ''), g.cupo_disponible, g.cupo_max
+	query := `SELECT g.id, g.codigo, a.id, a.codigo, a.nombre, COALESCE(pa.semestre, 0), a.creditos, COALESCE(a.tiene_laboratorio, false), COALESCE(g.docente, ''), g.cupo_disponible, g.cupo_max
 	          FROM grupo g
 	          JOIN asignatura a ON g.asignatura_id = a.id
 	          JOIN pensum_asignatura pa ON pa.asignatura_id = a.id AND pa.pensum_id = $1
@@ -155,7 +155,7 @@ func (r *PensumRepository) GetGruposPensum(pensumID, periodoID int) ([]models.Gr
 	var ids []int
 	for rows.Next() {
 		var g models.GrupoPensum
-		if err := rows.Scan(&g.ID, &g.Codigo, &g.AsignaturaID, &g.AsignaturaCodigo, &g.AsignaturaNombre, &g.Semestre, &g.Creditos, &g.Docente, &g.CupoDisponible, &g.CupoMax); err != nil {
+		if err := rows.Scan(&g.ID, &g.Codigo, &g.AsignaturaID, &g.AsignaturaCodigo, &g.AsignaturaNombre, &g.Semestre, &g.Creditos, &g.TieneLaboratorio, &g.Docente, &g.CupoDisponible, &g.CupoMax); err != nil {
 			continue
 		}
 		grupos = append(grupos, g)
@@ -169,7 +169,7 @@ func (r *PensumRepository) FetchHorariosForGroups(groupIDs []int) (map[int][]mod
 	if len(groupIDs) == 0 {
 		return horarios, nil
 	}
-	query := `SELECT grupo_id, dia, hora_inicio::text, hora_fin::text, COALESCE(salon, '')
+	query := `SELECT grupo_id, dia, hora_inicio::text, hora_fin::text, COALESCE(salon, ''), COALESCE(componente, 'teoria')
 	          FROM horario_grupo WHERE grupo_id = ANY($1)`
 	rows, err := r.db.Query(query, pq.Array(groupIDs))
 	if err != nil {
@@ -179,7 +179,7 @@ func (r *PensumRepository) FetchHorariosForGroups(groupIDs []int) (map[int][]mod
 	for rows.Next() {
 		var grupoID int
 		var h models.HorarioDisponible
-		if err := rows.Scan(&grupoID, &h.Dia, &h.HoraInicio, &h.HoraFin, &h.Salon); err != nil {
+		if err := rows.Scan(&grupoID, &h.Dia, &h.HoraInicio, &h.HoraFin, &h.Salon, &h.Componente); err != nil {
 			return nil, err
 		}
 		horarios[grupoID] = append(horarios[grupoID], h)
