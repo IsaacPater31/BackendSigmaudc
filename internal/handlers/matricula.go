@@ -353,7 +353,7 @@ func (h *MatriculaHandler) GetAsignaturasDisponibles(w http.ResponseWriter, r *h
 		return
 	}
 
-	gruposMap, err := h.fetchGroupsForAsignaturas(ctx.Periodo.ID, asignaturas)
+	gruposMap, err := h.fetchGroupsForAsignaturas(ctx.Periodo.ID, ctx.EstudianteID, asignaturas)
 	if err != nil {
 		log.Printf("Error obteniendo grupos de asignaturas: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -418,15 +418,9 @@ func (h *MatriculaHandler) GetAsignaturasDisponibles(w http.ResponseWriter, r *h
 		}
 
 		grupos := gruposMap[asig.ID]
-		conCupo := false
-		for _, grupo := range grupos {
-			if grupo.CupoDisponible > 0 && horarioGrupoValidoDesdeLista(asig.TieneLaboratorio, grupo.Horarios) {
-				conCupo = true
-				break
-			}
-		}
+		conGruposElegibles := len(grupos) > 0
 
-		if state == "obligatoria_repeticion" && !conCupo {
+		if state == "obligatoria_repeticion" && !conGruposElegibles {
 			obligatoriasSinGrupo = append(obligatoriasSinGrupo, ObligatoriaInfo{
 				ID:     asig.ID,
 				Codigo: asig.Codigo,
@@ -435,6 +429,9 @@ func (h *MatriculaHandler) GetAsignaturasDisponibles(w http.ResponseWriter, r *h
 		}
 		// No mostrar materias que ya están aprobadas.
 		if state == "cursada" {
+			continue
+		}
+		if !conGruposElegibles {
 			continue
 		}
 
@@ -570,7 +567,7 @@ func (h *MatriculaHandler) GetGruposAsignatura(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	groupsMap, err := h.fetchGroupsForAsignaturas(ctx.Periodo.ID, []models.AsignaturaCompleta{{ID: asignaturaID}})
+	groupsMap, err := h.fetchGroupsForAsignaturas(ctx.Periodo.ID, ctx.EstudianteID, []models.AsignaturaCompleta{{ID: asignaturaID}})
 	if err != nil {
 		log.Printf("Error obteniendo grupos para la asignatura: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -1600,11 +1597,21 @@ func (h *MatriculaHandler) JefeDesmatricularGrupo(w http.ResponseWriter, r *http
 	json.NewEncoder(w).Encode(map[string]string{"message": "Desmatriculación realizada correctamente."})
 }
 
-func (h *MatriculaHandler) fetchGroupsForAsignaturas(periodoID int, asignaturas []models.AsignaturaCompleta) (map[int][]GrupoDisponible, error) {
+func (h *MatriculaHandler) fetchGroupsForAsignaturas(periodoID, estudianteID int, asignaturas []models.AsignaturaCompleta) (map[int][]GrupoDisponible, error) {
 	result := make(map[int][]GrupoDisponible)
 	if len(asignaturas) == 0 {
 		return result, nil
 	}
+
+	var horariosInscritos []horarioBloque
+	if estudianteID > 0 {
+		var err error
+		horariosInscritos, err = h.fetchHorariosInscritos(estudianteID, periodoID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	ids := make([]int, 0, len(asignaturas))
 	for _, asig := range asignaturas {
 		ids = append(ids, asig.ID)
@@ -1657,9 +1664,16 @@ func (h *MatriculaHandler) fetchGroupsForAsignaturas(periodoID int, asignaturas 
 		validos := make([]GrupoDisponible, 0, len(grupos))
 		for i := range grupos {
 			grupos[i].Horarios = horariosMap[grupos[i].ID]
-			if horarioGrupoValidoDesdeLista(tieneLabMap[asignaturaID], grupos[i].Horarios) {
-				validos = append(validos, grupos[i])
+			if grupos[i].CupoDisponible <= 0 {
+				continue
 			}
+			if !horarioGrupoValidoDesdeLista(tieneLabMap[asignaturaID], grupos[i].Horarios) {
+				continue
+			}
+			if grupoConflictaConHorariosInscritos(grupos[i], horariosInscritos) {
+				continue
+			}
+			validos = append(validos, grupos[i])
 		}
 		result[asignaturaID] = validos
 	}
@@ -1813,6 +1827,45 @@ func horariosOverlap(a, b horarioBloque) bool {
 		return false
 	}
 	return !(a.FinMin <= b.InicioMin || b.FinMin <= a.InicioMin)
+}
+
+func horariosDisponiblesToBloques(grupoID int, horarios []HorarioDisponible) ([]horarioBloque, error) {
+	bloques := make([]horarioBloque, 0, len(horarios))
+	for _, h := range horarios {
+		ini, err := convertTimeToMinutes(h.HoraInicio)
+		if err != nil {
+			return nil, err
+		}
+		finMin, err := convertTimeToMinutes(h.HoraFin)
+		if err != nil {
+			return nil, err
+		}
+		bloques = append(bloques, horarioBloque{
+			GrupoID:   grupoID,
+			Dia:       h.Dia,
+			InicioMin: ini,
+			FinMin:    finMin,
+		})
+	}
+	return bloques, nil
+}
+
+func grupoConflictaConHorariosInscritos(grupo GrupoDisponible, inscritos []horarioBloque) bool {
+	if len(inscritos) == 0 || len(grupo.Horarios) == 0 {
+		return false
+	}
+	bloques, err := horariosDisponiblesToBloques(grupo.ID, grupo.Horarios)
+	if err != nil {
+		return true
+	}
+	for _, nuevo := range bloques {
+		for _, existente := range inscritos {
+			if horariosOverlap(nuevo, existente) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func formatHoraDisplay(value string) string {
@@ -2186,7 +2239,7 @@ func (h *MatriculaHandler) getAsignaturasDisponiblesModificaciones(ctx *inscripc
 		return nil, err
 	}
 
-	gruposMap, err := h.fetchGroupsForAsignaturas(ctx.Periodo.ID, allAsignaturas)
+	gruposMap, err := h.fetchGroupsForAsignaturas(ctx.Periodo.ID, ctx.EstudianteID, allAsignaturas)
 	if err != nil {
 		return nil, err
 	}
@@ -2247,32 +2300,24 @@ func (h *MatriculaHandler) getAsignaturasDisponiblesModificaciones(ctx *inscripc
 		}
 
 		grupos := gruposMap[asig.ID]
+		if len(grupos) == 0 {
+			continue
+		}
 
 		// Para asignaturas de núcleo común: obtener programas disponibles y programa de cada grupo
 		var programasDisponibles []ProgramaInfo
 		if asig.Categoria == "nucleo_comun" {
-			// Obtener programas que tienen esta asignatura como núcleo común
 			programas, err := h.fetchProgramasNucleoComun(asig.ID)
 			if err == nil {
 				programasDisponibles = programas
 			}
 
-			// Filtrar grupos sin cupo y agregar información del programa a cada grupo
-			gruposConCupo := []GrupoDisponible{}
-			for _, grupo := range grupos {
-				if grupo.CupoDisponible > 0 && horarioGrupoValidoDesdeLista(asig.TieneLaboratorio, grupo.Horarios) {
-					// Obtener programa asociado al grupo
-					progInfo, err := h.fetchProgramaPorGrupo(grupo.ID, asig.ID)
-					if err == nil && progInfo != nil {
-						grupo.ProgramaID = &progInfo.ID
-						grupo.ProgramaNombre = &progInfo.Nombre
-					}
-					gruposConCupo = append(gruposConCupo, grupo)
+			for i := range grupos {
+				progInfo, err := h.fetchProgramaPorGrupo(grupos[i].ID, asig.ID)
+				if err == nil && progInfo != nil {
+					grupos[i].ProgramaID = &progInfo.ID
+					grupos[i].ProgramaNombre = &progInfo.Nombre
 				}
-			}
-			grupos = gruposConCupo
-			if len(grupos) == 0 {
-				continue // No mostrar si no hay grupos con cupo
 			}
 		}
 
