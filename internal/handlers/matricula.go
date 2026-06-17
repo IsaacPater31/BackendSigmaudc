@@ -865,232 +865,8 @@ func (h *MatriculaHandler) InscribirAsignaturas(w http.ResponseWriter, r *http.R
 		}
 	}
 
-	pensumHandler := &PensumHandler{db: h.db}
-	asignaturas, err := pensumHandler.getAsignaturas(ctx.PensumID)
-	if err != nil {
-		log.Printf("Error obteniendo asignaturas del pensum: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	prereqs, err := pensumHandler.buildPrereqMap(ctx.PensumID)
-	if err != nil {
-		log.Printf("Error obteniendo prerrequisitos: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	historialMap, err := pensumHandler.buildHistorialMap(ctx.EstudianteID)
-	if err != nil {
-		log.Printf("Error obteniendo historial académico: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	activeOrdinal := periodOrdinal(ctx.Periodo.Year, ctx.Periodo.Semestre)
-	asignaturaMap := make(map[int]models.AsignaturaCompleta, len(asignaturas))
-	stateMap := make(map[int]string, len(asignaturas))
-	for _, asig := range asignaturas {
-		asignaturaMap[asig.ID] = asig
-		lastState, _, _, _, _ := determineEstado(historialMap[asig.ID], ctx.Periodo, &activeOrdinal, false)
-		stateMap[asig.ID] = lastState
-	}
-
-	obligatorias := []int{}
-	for id, state := range stateMap {
-		if state == "obligatoria_repeticion" {
-			obligatorias = append(obligatorias, id)
-		}
-	}
-
-	if len(obligatorias) > 0 {
-		disponibles := map[int]int{}
-		query := `
-			SELECT asignatura_id, COUNT(*) FILTER (WHERE cupo_disponible > 0) AS disponibles
-			FROM grupo
-			WHERE periodo_id = $1
-			  AND asignatura_id = ANY($2)
-			GROUP BY asignatura_id
-		`
-		rows, err := h.db.Query(query, ctx.Periodo.ID, pq.Array(obligatorias))
-		if err != nil {
-			log.Printf("Error revisando grupos de repetición obligatoria: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var asignaturaID, cantidad int
-			if err := rows.Scan(&asignaturaID, &cantidad); err != nil {
-				log.Printf("Error escaneando repetición obligatoria: %v", err)
-				continue
-			}
-			disponibles[asignaturaID] = cantidad
-		}
-
-		for _, id := range obligatorias {
-			if disponibles[id] == 0 {
-				asig := asignaturaMap[id]
-				http.Error(w, fmt.Sprintf("La asignatura %s %s está en repetición obligatoria y no tiene cupos disponibles, por lo tanto no puedes matricular otras asignaturas.", asig.Codigo, asig.Nombre), http.StatusConflict)
-				return
-			}
-		}
-	}
-
-	query := `
-		SELECT 
-			g.id, g.codigo, g.asignatura_id, g.cupo_disponible, g.cupo_max, a.creditos
-		FROM grupo g
-		JOIN asignatura a ON a.id = g.asignatura_id
-		WHERE g.periodo_id = $1 AND g.id = ANY($2)
-	`
-	rows, err := h.db.Query(query, ctx.Periodo.ID, pq.Array(uniqueGrupoIDs))
-	if err != nil {
-		log.Printf("Error obteniendo grupos solicitados: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
-
-	selectedGroups := make(map[int]groupRecord)
-	selectedAsignaturas := make(map[int]int)
-	creditosNuevos := 0
-	for rows.Next() {
-		var reg groupRecord
-		if err := rows.Scan(&reg.ID, &reg.Codigo, &reg.AsignaturaID, &reg.CupoDisponible, &reg.CupoMax, &reg.Creditos); err != nil {
-			log.Printf("Error escaneando grupo: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		if reg.CupoDisponible <= 0 {
-			http.Error(w, fmt.Sprintf("El grupo %s ya no tiene cupos disponibles.", reg.Codigo), http.StatusConflict)
-			return
-		}
-
-		state, exists := stateMap[reg.AsignaturaID]
-		if !exists {
-			http.Error(w, "Asignatura fuera del pensum", http.StatusBadRequest)
-			return
-		}
-		switch state {
-		case "matriculada":
-			http.Error(w, fmt.Sprintf("Ya estás matriculado en %s.", asignaturaMap[reg.AsignaturaID].Codigo), http.StatusConflict)
-			return
-		case "cursada":
-			http.Error(w, fmt.Sprintf("No puedes volver a inscribir %s porque ya la aprobaste.", asignaturaMap[reg.AsignaturaID].Codigo), http.StatusConflict)
-			return
-		case "en_espera":
-			http.Error(w, fmt.Sprintf("No puedes inscribir %s hasta que apruebes los prerrequisitos.", asignaturaMap[reg.AsignaturaID].Codigo), http.StatusConflict)
-			return
-		}
-		// Regla de negocio: inscripción inicial solo permite semestre actual y anteriores.
-		// Materias de semestres superiores deben gestionarse por módulo de modificaciones.
-		asigInfo, ok := asignaturaMap[reg.AsignaturaID]
-		if !ok {
-			http.Error(w, "Asignatura fuera del pensum", http.StatusBadRequest)
-			return
-		}
-		if asigInfo.Semestre > ctx.Semestre {
-			http.Error(
-				w,
-				fmt.Sprintf("No puedes inscribir %s porque pertenece a un semestre superior. Debes solicitarla por modificaciones.", asigInfo.Codigo),
-				http.StatusConflict,
-			)
-			return
-		}
-
-		if _, ok := selectedAsignaturas[reg.AsignaturaID]; ok {
-			http.Error(w, "Solo puedes seleccionar un grupo por asignatura.", http.StatusBadRequest)
-			return
-		}
-
-		selectedAsignaturas[reg.AsignaturaID] = reg.ID
-		selectedGroups[reg.ID] = reg
-		creditosNuevos += reg.Creditos
-	}
-
-	if len(selectedGroups) != len(uniqueGrupoIDs) {
-		http.Error(w, "Algunos grupos solicitados no existen o no pertenecen al periodo activo.", http.StatusBadRequest)
-		return
-	}
-
-	if err := h.validateGroupsHorarioCompleto(uniqueGrupoIDs); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
-		return
-	}
-
-	selectedAsignaturasSet := make(map[int]struct{}, len(selectedAsignaturas))
-	for asignaturaID := range selectedAsignaturas {
-		selectedAsignaturasSet[asignaturaID] = struct{}{}
-	}
-
-	for asignaturaID := range selectedAsignaturasSet {
-		for _, prereq := range prereqs[asignaturaID] {
-			if prereq.Tipo == "correquisito" {
-				if hasApprovedEntry(historialMap, prereq.PrerequisitoID) {
-					continue
-				}
-				if _, ok := selectedAsignaturasSet[prereq.PrerequisitoID]; !ok {
-					http.Error(w, fmt.Sprintf("Para inscribir %s debes llevar también %s como correquisito.", asignaturaMap[asignaturaID].Nombre, asignaturaMap[prereq.PrerequisitoID].Nombre), http.StatusBadRequest)
-					return
-				}
-				continue
-			}
-			if !hasApprovedEntry(historialMap, prereq.PrerequisitoID) {
-				http.Error(w, fmt.Sprintf("Te falta aprobar %s para inscribir %s.", assignmentDisplay(prereq.PrerequisitoID, asignaturaMap), asignaturaMap[asignaturaID].Nombre), http.StatusBadRequest)
-				return
-			}
-		}
-	}
-
-	existingHorarios, err := h.fetchHorariosInscritos(ctx.EstudianteID, ctx.Periodo.ID)
-	if err != nil {
-		log.Printf("Error obteniendo horarios matriculados: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	nuevosHorarios, err := h.fetchGroupScheduleBlocks(uniqueGrupoIDs)
-	if err != nil {
-		log.Printf("Error obteniendo horarios de los grupos a inscribir: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	checked := []horarioBloque{}
-	for _, bloque := range nuevosHorarios {
-		for _, existente := range existingHorarios {
-			if horariosOverlap(bloque, existente) {
-				http.Error(w, "Conflicto de horario con asignaturas ya matriculadas.", http.StatusConflict)
-				return
-			}
-		}
-		for _, previo := range checked {
-			if horariosOverlap(bloque, previo) {
-				http.Error(w, "Hay conflicto de horario entre dos grupos seleccionados.", http.StatusConflict)
-				return
-			}
-		}
-		checked = append(checked, bloque)
-	}
-
-	creditosInscritos, err := h.fetchInscritosCredits(ctx.EstudianteID, ctx.Periodo.ID)
-	if err != nil {
-		log.Printf("Error calculando créditos matriculados: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	creditosMax, err := h.fetchCreditLimit(ctx.PensumID, ctx.Semestre)
-	if err != nil {
-		log.Printf("Error calculando límite de créditos: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	if creditosInscritos+creditosNuevos > creditosMax {
-		http.Error(w, fmt.Sprintf("Inscribir estos grupos supera el límite de %d créditos para el semestre %d.", creditosMax, ctx.Semestre), http.StatusConflict)
+	selectedGroups, err := h.validateGruposAgregarInscripcion(ctx, uniqueGrupoIDs)
+	if respondMatriculaValidation(w, err) {
 		return
 	}
 
@@ -1947,43 +1723,6 @@ func mensajeSemestreNoPermitidoModificacion(codigoAsignatura string) string {
 	)
 }
 
-func (h *MatriculaHandler) validateGruposAgregarSemestreModificacion(gruposAgregar json.RawMessage, estudianteSemestre int) error {
-	var items []struct {
-		AsignaturaID     int    `json:"asignatura_id"`
-		AsignaturaCodigo string `json:"asignatura_codigo"`
-	}
-	if len(gruposAgregar) == 0 {
-		return nil
-	}
-	if err := json.Unmarshal(gruposAgregar, &items); err != nil {
-		return fmt.Errorf("formato inválido en grupos a agregar")
-	}
-	for _, item := range items {
-		if item.AsignaturaID <= 0 {
-			continue
-		}
-		var asigSemestre int
-		var codigo string
-		err := h.db.QueryRow(`
-			SELECT a.codigo, COALESCE(MIN(pa.semestre), 0)
-			FROM asignatura a
-			LEFT JOIN pensum_asignatura pa ON pa.asignatura_id = a.id
-			WHERE a.id = $1
-			GROUP BY a.codigo
-		`, item.AsignaturaID).Scan(&codigo, &asigSemestre)
-		if err != nil {
-			return fmt.Errorf("asignatura inválida en la solicitud")
-		}
-		if codigo == "" && item.AsignaturaCodigo != "" {
-			codigo = item.AsignaturaCodigo
-		}
-		if !puedeAgregarAsignaturaEnModificaciones(asigSemestre, estudianteSemestre) {
-			return fmt.Errorf("%s", mensajeSemestreNoPermitidoModificacion(codigo))
-		}
-	}
-	return nil
-}
-
 // =============================================================================
 // MÓDULO DE MODIFICACIONES ESTUDIANTILES
 // =============================================================================
@@ -2675,210 +2414,8 @@ func (h *MatriculaHandler) AgregarMateriaModificaciones(w http.ResponseWriter, r
 		uniqueGrupoIDs = append(uniqueGrupoIDs, id)
 	}
 
-	// Validar grupos, cupos, horarios, etc. (similar a InscribirAsignaturas)
-	// Por simplicidad, reutilizamos la lógica de InscribirAsignaturas pero sin verificar documentos
-	// Crearemos una versión simplificada que valida todo excepto documentos
-
-	// Obtener grupos y validar
-	query := `
-		SELECT 
-			g.id, g.codigo, g.asignatura_id, g.cupo_disponible, g.cupo_max, a.creditos
-		FROM grupo g
-		JOIN asignatura a ON a.id = g.asignatura_id
-		WHERE g.periodo_id = $1 AND g.id = ANY($2)
-	`
-	rows, err := h.db.Query(query, ctx.Periodo.ID, pq.Array(uniqueGrupoIDs))
-	if err != nil {
-		log.Printf("Error obteniendo grupos: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
-
-	selectedGroups := make(map[int]groupRecord)
-	selectedAsignaturas := make(map[int]int)
-	creditosNuevos := 0
-	for rows.Next() {
-		var reg groupRecord
-		if err := rows.Scan(&reg.ID, &reg.Codigo, &reg.AsignaturaID, &reg.CupoDisponible, &reg.CupoMax, &reg.Creditos); err != nil {
-			log.Printf("Error escaneando grupo: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		if reg.CupoDisponible <= 0 {
-			http.Error(w, fmt.Sprintf("El grupo %s ya no tiene cupos disponibles.", reg.Codigo), http.StatusConflict)
-			return
-		}
-
-		// Verificar que no esté ya matriculado
-		var yaMatriculado int
-		queryMat := `SELECT COUNT(*) FROM historial_academico WHERE id_estudiante = $1 AND id_asignatura = $2 AND id_periodo = $3 AND estado = 'matriculada'`
-		err = h.db.QueryRow(queryMat, ctx.EstudianteID, reg.AsignaturaID, ctx.Periodo.ID).Scan(&yaMatriculado)
-		if err == nil && yaMatriculado > 0 {
-			http.Error(w, fmt.Sprintf("Ya estás matriculado en la asignatura %s.", reg.Codigo), http.StatusConflict)
-			return
-		}
-
-		if _, ok := selectedAsignaturas[reg.AsignaturaID]; ok {
-			http.Error(w, "Solo puedes seleccionar un grupo por asignatura.", http.StatusBadRequest)
-			return
-		}
-
-		selectedAsignaturas[reg.AsignaturaID] = reg.ID
-		selectedGroups[reg.ID] = reg
-		creditosNuevos += reg.Creditos
-	}
-
-	if len(selectedGroups) != len(uniqueGrupoIDs) {
-		http.Error(w, "Algunos grupos solicitados no existen o no pertenecen al periodo activo.", http.StatusBadRequest)
-		return
-	}
-
-	if err := h.validateGroupsHorarioCompleto(uniqueGrupoIDs); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
-		return
-	}
-
-	// Validar prerrequisitos (igual que en InscribirAsignaturas)
-	pensumHandler := &PensumHandler{db: h.db}
-	prereqs, err := pensumHandler.buildPrereqMap(ctx.PensumID)
-	if err != nil {
-		log.Printf("Error obteniendo prerrequisitos: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	historialMap, err := pensumHandler.buildHistorialMap(ctx.EstudianteID)
-	if err != nil {
-		log.Printf("Error obteniendo historial académico: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	// Obtener información de asignaturas para validar
-	asignaturas, err := pensumHandler.getAsignaturas(ctx.PensumID)
-	if err != nil {
-		log.Printf("Error obteniendo asignaturas del pensum: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	asignaturaMap := make(map[int]models.AsignaturaCompleta, len(asignaturas))
-	for _, asig := range asignaturas {
-		asignaturaMap[asig.ID] = asig
-	}
-
-	// Agregar asignaturas de núcleo común al mapa
-	nucleoComun, err := h.fetchNucleoComunOtrasCarreras(ctx.ProgramaID)
-	if err == nil {
-		for _, asig := range nucleoComun {
-			asignaturaMap[asig.ID] = asig
-		}
-	}
-
-	selectedAsignaturasSet := make(map[int]struct{}, len(selectedAsignaturas))
-	for asignaturaID := range selectedAsignaturas {
-		selectedAsignaturasSet[asignaturaID] = struct{}{}
-	}
-
-	for asignaturaID := range selectedAsignaturasSet {
-		asig, ok := asignaturaMap[asignaturaID]
-		if !ok {
-			http.Error(w, "Asignatura fuera del pensum", http.StatusBadRequest)
-			return
-		}
-		if !puedeAgregarAsignaturaEnModificaciones(asig.Semestre, ctx.Semestre) {
-			http.Error(w, mensajeSemestreNoPermitidoModificacion(asig.Codigo), http.StatusConflict)
-			return
-		}
-	}
-
-	// Validar prerrequisitos y correquisitos
-	for asignaturaID := range selectedAsignaturasSet {
-		for _, prereq := range prereqs[asignaturaID] {
-			if prereq.Tipo == "correquisito" {
-				// Si el correquisito ya está aprobado, continuar
-				if hasApprovedEntry(historialMap, prereq.PrerequisitoID) {
-					continue
-				}
-				// Si el correquisito está en la selección actual, está bien
-				if _, ok := selectedAsignaturasSet[prereq.PrerequisitoID]; !ok {
-					asigNombre := "asignatura desconocida"
-					if asig, ok := asignaturaMap[asignaturaID]; ok {
-						asigNombre = asig.Nombre
-					}
-					prereqNombre := "asignatura desconocida"
-					if asigPre, ok := asignaturaMap[prereq.PrerequisitoID]; ok {
-						prereqNombre = asigPre.Nombre
-					}
-					http.Error(w, fmt.Sprintf("Para agregar %s debes llevar también %s como correquisito.", asigNombre, prereqNombre), http.StatusBadRequest)
-					return
-				}
-				continue
-			}
-			// Validar prerrequisito
-			if !hasApprovedEntry(historialMap, prereq.PrerequisitoID) {
-				asigNombre := "asignatura desconocida"
-				if asig, ok := asignaturaMap[asignaturaID]; ok {
-					asigNombre = asig.Nombre
-				}
-				prereqNombre := assignmentDisplay(prereq.PrerequisitoID, asignaturaMap)
-				http.Error(w, fmt.Sprintf("Te falta aprobar %s para agregar %s.", prereqNombre, asigNombre), http.StatusBadRequest)
-				return
-			}
-		}
-	}
-
-	// Validar horarios
-	existingHorarios, err := h.fetchHorariosInscritos(ctx.EstudianteID, ctx.Periodo.ID)
-	if err != nil {
-		log.Printf("Error obteniendo horarios matriculados: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	nuevosHorarios, err := h.fetchGroupScheduleBlocks(uniqueGrupoIDs)
-	if err != nil {
-		log.Printf("Error obteniendo horarios de los grupos: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	checked := []horarioBloque{}
-	for _, bloque := range nuevosHorarios {
-		for _, existente := range existingHorarios {
-			if horariosOverlap(bloque, existente) {
-				http.Error(w, "Conflicto de horario con asignaturas ya matriculadas.", http.StatusConflict)
-				return
-			}
-		}
-		for _, previo := range checked {
-			if horariosOverlap(bloque, previo) {
-				http.Error(w, "Hay conflicto de horario entre dos grupos seleccionados.", http.StatusConflict)
-				return
-			}
-		}
-		checked = append(checked, bloque)
-	}
-
-	// Validar créditos
-	creditosInscritos, err := h.fetchInscritosCredits(ctx.EstudianteID, ctx.Periodo.ID)
-	if err != nil {
-		log.Printf("Error calculando créditos matriculados: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	creditosMax, err := h.fetchCreditLimit(ctx.PensumID, ctx.Semestre)
-	if err != nil {
-		log.Printf("Error calculando límite de créditos: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	if creditosInscritos+creditosNuevos > creditosMax {
-		http.Error(w, fmt.Sprintf("Agregar estos grupos supera el límite de %d créditos para el semestre %d.", creditosMax, ctx.Semestre), http.StatusConflict)
+	selectedGroups, _, err := h.validateGruposAgregarModificacion(ctx, uniqueGrupoIDs, nil)
+	if respondMatriculaValidation(w, err) {
 		return
 	}
 
@@ -3081,36 +2618,31 @@ func (h *MatriculaHandler) CrearSolicitudModificacion(w http.ResponseWriter, r *
 		return
 	}
 
-	// Obtener estudiante (el programa_id viene de usuario, no de estudiante)
-	var estudianteID int
-	err = h.db.QueryRow(`SELECT id FROM estudiante WHERE usuario_id = $1`, claims.Sub).Scan(&estudianteID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "Estudiante no encontrado", http.StatusNotFound)
-			return
-		}
-		log.Printf("Error obteniendo estudiante: %v", err)
-		http.Error(w, "Error obteniendo información del estudiante", http.StatusInternalServerError)
+	if claims.Rol != constants.RolEstudiante {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
-	// El programa_id viene de los claims del JWT (ya está validado en el middleware)
-	programaID := claims.ProgramaID
-
-	// Obtener periodo activo
-	var periodoID int
-	err = h.db.QueryRow(`SELECT id FROM periodo_academico WHERE activo = TRUE LIMIT 1`).Scan(&periodoID)
+	ctx, razon, err := h.prepareModificacionesContext(claims)
 	if err != nil {
+		log.Printf("Error preparando contexto de modificaciones: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	if razon != "" {
+		http.Error(w, razon, http.StatusForbidden)
+		return
+	}
+	if ctx.Periodo == nil {
 		http.Error(w, "No hay periodo activo", http.StatusBadRequest)
 		return
 	}
 
-	// Verificar que no haya solicitud pendiente
 	var count int
 	err = h.db.QueryRow(`
 		SELECT COUNT(*) FROM solicitud_modificacion 
 		WHERE estudiante_id = $1 AND periodo_id = $2 AND estado = 'pendiente'
-	`, estudianteID, periodoID).Scan(&count)
+	`, ctx.EstudianteID, ctx.Periodo.ID).Scan(&count)
 	if err == nil && count > 0 {
 		http.Error(w, "Ya tienes una solicitud pendiente", http.StatusBadRequest)
 		return
@@ -3124,8 +2656,6 @@ func (h *MatriculaHandler) CrearSolicitudModificacion(w http.ResponseWriter, r *
 		http.Error(w, "Payload inválido", http.StatusBadRequest)
 		return
 	}
-
-	// Valores por defecto
 	if payload.GruposAgregar == nil {
 		payload.GruposAgregar = json.RawMessage("[]")
 	}
@@ -3133,114 +2663,9 @@ func (h *MatriculaHandler) CrearSolicitudModificacion(w http.ResponseWriter, r *
 		payload.GruposRetirar = json.RawMessage("[]")
 	}
 
-	// Validar que los arrays no estén vacíos si ambos están vacíos
-	var gruposAgregarArray []interface{}
-	var gruposRetirarArray []interface{}
-	json.Unmarshal(payload.GruposAgregar, &gruposAgregarArray)
-	json.Unmarshal(payload.GruposRetirar, &gruposRetirarArray)
-
-	if len(gruposAgregarArray) == 0 && len(gruposRetirarArray) == 0 {
-		http.Error(w, "Debes seleccionar al menos un grupo para agregar o una materia para retirar", http.StatusBadRequest)
+	agregarJSON, retirarJSON, err := h.validateSolicitudModificacion(ctx, payload.GruposAgregar, payload.GruposRetirar)
+	if respondMatriculaValidation(w, err) {
 		return
-	}
-
-	// Si los grupos_agregar vienen como array de IDs simples, convertirlos a objetos con información completa
-	if len(gruposAgregarArray) > 0 {
-		// Verificar si el primer elemento es un número (ID simple) o un objeto
-		primerElemento := gruposAgregarArray[0]
-		if _, ok := primerElemento.(float64); ok {
-			// Es un array de IDs simples, necesitamos obtener la información completa
-			var gruposCompletos []map[string]interface{}
-			for _, id := range gruposAgregarArray {
-				grupoID := int(id.(float64))
-				// Obtener información del grupo desde la BD
-				var grupoCodigo, asignaturaCodigo, asignaturaNombre string
-				var asignaturaID, creditos int
-				err := h.db.QueryRow(`
-					SELECT g.codigo, a.id, a.codigo, a.nombre, a.creditos
-					FROM grupo g
-					JOIN asignatura a ON a.id = g.asignatura_id
-					WHERE g.id = $1
-				`, grupoID).Scan(&grupoCodigo, &asignaturaID, &asignaturaCodigo, &asignaturaNombre, &creditos)
-				if err == nil {
-					gruposCompletos = append(gruposCompletos, map[string]interface{}{
-						"grupo_id":          grupoID,
-						"grupo_codigo":      grupoCodigo,
-						"asignatura_id":     asignaturaID,
-						"asignatura_codigo": asignaturaCodigo,
-						"asignatura_nombre": asignaturaNombre,
-						"creditos":          creditos,
-					})
-				}
-			}
-			if len(gruposCompletos) > 0 {
-				payload.GruposAgregar, _ = json.Marshal(gruposCompletos)
-			}
-		}
-	}
-
-	// Si los grupos_retirar vienen como array de historial_ids simples, convertirlos a objetos con información completa
-	if len(gruposRetirarArray) > 0 {
-		primerElemento := gruposRetirarArray[0]
-		if _, ok := primerElemento.(float64); ok {
-			// Es un array de historial_ids simples, necesitamos obtener la información completa
-			var gruposCompletos []map[string]interface{}
-			for _, id := range gruposRetirarArray {
-				historialID := int(id.(float64))
-				// Obtener información del historial desde la BD
-				var grupoID, asignaturaID, creditos int
-				var grupoCodigo, asignaturaCodigo, asignaturaNombre string
-				err := h.db.QueryRow(`
-					SELECT h.grupo_id, h.id_asignatura, g.codigo, a.codigo, a.nombre, a.creditos
-					FROM historial_academico h
-					JOIN grupo g ON g.id = h.grupo_id
-					JOIN asignatura a ON a.id = h.id_asignatura
-					WHERE h.id = $1 AND h.id_estudiante = $2
-				`, historialID, estudianteID).Scan(&grupoID, &asignaturaID, &grupoCodigo, &asignaturaCodigo, &asignaturaNombre, &creditos)
-				if err == nil {
-					gruposCompletos = append(gruposCompletos, map[string]interface{}{
-						"historial_id":      historialID,
-						"grupo_id":          grupoID,
-						"grupo_codigo":      grupoCodigo,
-						"asignatura_id":     asignaturaID,
-						"asignatura_codigo": asignaturaCodigo,
-						"asignatura_nombre": asignaturaNombre,
-						"creditos":          creditos,
-					})
-				}
-			}
-			if len(gruposCompletos) > 0 {
-				payload.GruposRetirar, _ = json.Marshal(gruposCompletos)
-			}
-		}
-	}
-
-	var semestreEstudiante int
-	err = h.db.QueryRow(`SELECT semestre FROM estudiante WHERE id = $1`, estudianteID).Scan(&semestreEstudiante)
-	if err != nil {
-		log.Printf("Error obteniendo semestre del estudiante: %v", err)
-		http.Error(w, "Error obteniendo información del estudiante", http.StatusInternalServerError)
-		return
-	}
-	if err := h.validateGruposAgregarSemestreModificacion(payload.GruposAgregar, semestreEstudiante); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
-		return
-	}
-
-	var agregarValidacion []struct {
-		GrupoID int `json:"grupo_id"`
-	}
-	if err := json.Unmarshal(payload.GruposAgregar, &agregarValidacion); err == nil && len(agregarValidacion) > 0 {
-		grupoIDs := make([]int, 0, len(agregarValidacion))
-		for _, a := range agregarValidacion {
-			if a.GrupoID > 0 {
-				grupoIDs = append(grupoIDs, a.GrupoID)
-			}
-		}
-		if err := h.validateGroupsHorarioCompleto(grupoIDs); err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		}
 	}
 
 	var solicitudID int
@@ -3248,7 +2673,7 @@ func (h *MatriculaHandler) CrearSolicitudModificacion(w http.ResponseWriter, r *
 		INSERT INTO solicitud_modificacion (estudiante_id, programa_id, periodo_id, grupos_agregar, grupos_retirar, estado)
 		VALUES ($1, $2, $3, $4, $5, 'pendiente')
 		RETURNING id
-	`, estudianteID, programaID, periodoID, payload.GruposAgregar, payload.GruposRetirar).Scan(&solicitudID)
+	`, ctx.EstudianteID, ctx.ProgramaID, ctx.Periodo.ID, agregarJSON, retirarJSON).Scan(&solicitudID)
 	if err != nil {
 		log.Printf("Error creando solicitud: %v", err)
 		http.Error(w, "Error creando solicitud", http.StatusInternalServerError)
@@ -3256,10 +2681,10 @@ func (h *MatriculaHandler) CrearSolicitudModificacion(w http.ResponseWriter, r *
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	h.emitModificacionesEvent(programaID, "solicitud_actualizada", map[string]interface{}{
+	h.emitModificacionesEvent(ctx.ProgramaID, "solicitud_actualizada", map[string]interface{}{
 		"action":        "creada",
 		"solicitud_id":  solicitudID,
-		"estudiante_id": estudianteID,
+		"estudiante_id": ctx.EstudianteID,
 		"estado":        "pendiente",
 	})
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -3482,34 +2907,27 @@ func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r
 		return
 	}
 
-	// Si se aprueba, aplicar cambios de forma transaccional y estricta.
+	// Si se aprueba, re-validar reglas de negocio y aplicar cambios de forma transaccional.
 	if payload.Estado == "aprobada" {
-		var semestreEstudiante int
-		err = h.db.QueryRow(`SELECT semestre FROM estudiante WHERE id = $1`, estudianteID).Scan(&semestreEstudiante)
-		if err != nil {
-			log.Printf("Error obteniendo semestre del estudiante: %v", err)
-			http.Error(w, "Error obteniendo información del estudiante", http.StatusInternalServerError)
-			return
-		}
-		if err := h.validateGruposAgregarSemestreModificacion(gruposAgregar, semestreEstudiante); err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
+		ctx, err := h.loadModificacionesContextForApproval(estudianteID, periodoID)
+		if respondMatriculaValidation(w, err) {
 			return
 		}
 
-		var agregarPreview []struct {
-			GrupoID int `json:"grupo_id"`
+		agregarJSON, retirarJSON, err := h.validateSolicitudModificacion(ctx, gruposAgregar, gruposRetirar)
+		if respondMatriculaValidation(w, err) {
+			return
 		}
-		if err := json.Unmarshal(gruposAgregar, &agregarPreview); err == nil && len(agregarPreview) > 0 {
-			grupoIDs := make([]int, 0, len(agregarPreview))
-			for _, a := range agregarPreview {
-				if a.GrupoID > 0 {
-					grupoIDs = append(grupoIDs, a.GrupoID)
-				}
-			}
-			if err := h.validateGroupsHorarioCompleto(grupoIDs); err != nil {
-				http.Error(w, err.Error(), http.StatusConflict)
-				return
-			}
+
+		var retirar []solicitudGrupoRetirarStored
+		if err := json.Unmarshal(retirarJSON, &retirar); err != nil {
+			http.Error(w, "Formato inválido en grupos a retirar", http.StatusBadRequest)
+			return
+		}
+		var agregar []solicitudGrupoAgregarStored
+		if err := json.Unmarshal(agregarJSON, &agregar); err != nil {
+			http.Error(w, "Formato inválido en grupos a agregar", http.StatusBadRequest)
+			return
 		}
 
 		tx, err := h.db.Begin()
@@ -3520,14 +2938,6 @@ func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r
 		}
 		defer tx.Rollback()
 
-		var retirar []struct {
-			HistorialID int `json:"historial_id"`
-			GrupoID     int `json:"grupo_id"`
-		}
-		if err := json.Unmarshal(gruposRetirar, &retirar); err != nil {
-			http.Error(w, "Formato inválido en grupos a retirar", http.StatusBadRequest)
-			return
-		}
 		for _, r := range retirar {
 			resCupo, err := tx.Exec(`
 				UPDATE grupo
@@ -3561,14 +2971,6 @@ func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r
 			}
 		}
 
-		var agregar []struct {
-			GrupoID      int `json:"grupo_id"`
-			AsignaturaID int `json:"asignatura_id"`
-		}
-		if err := json.Unmarshal(gruposAgregar, &agregar); err != nil {
-			http.Error(w, "Formato inválido en grupos a agregar", http.StatusBadRequest)
-			return
-		}
 		for _, a := range agregar {
 			var yaMatriculado int
 			err := tx.QueryRow(`
