@@ -1,3 +1,9 @@
+// SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey,
+// Isaac David Paternina Noble, Harry Perez Perea, Camilo Rodríguez Garay,
+// José Félix Bustamante Soto y Juan Felipe Eraso Navarro.
+// Todos los derechos reservados.
+
 // Package handlers – MatriculaHandler
 // Gestiona todo el ciclo de matrícula académica del estudiante:
 // validación, inscripción, horarios, modificaciones y solicitudes.
@@ -15,6 +21,7 @@ import (
 	"time"
 
 	"github.com/andrxsq/SIGMAUDC/internal/constants"
+	"github.com/andrxsq/SIGMAUDC/internal/httpx"
 	"github.com/andrxsq/SIGMAUDC/internal/models"
 	"github.com/andrxsq/SIGMAUDC/internal/services"
 	"github.com/gorilla/mux"
@@ -235,19 +242,19 @@ func NewMatriculaHandler(db *sql.DB, service *services.MatriculaService) *Matric
 func (h *MatriculaHandler) ValidarInscripcion(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	if claims.Rol != constants.RolEstudiante {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
 	ctx, razon, err := h.prepareInscripcionContext(claims)
 	if err != nil {
 		log.Printf("Error preparando contexto de inscripción: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -304,29 +311,29 @@ func joinDocumentos(docs []string) string {
 func (h *MatriculaHandler) GetAsignaturasDisponibles(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	if claims.Rol != constants.RolEstudiante {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
 	ctx, razon, err := h.prepareInscripcionContext(claims)
 	if err != nil {
 		log.Printf("Error preparando contexto de inscripción: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	if razon != "" {
-		http.Error(w, razon, http.StatusForbidden)
+		httpx.Error(w, razon, http.StatusForbidden)
 		return
 	}
 
 	if ctx.Periodo == nil {
-		http.Error(w, "No hay periodo académico activo", http.StatusNotFound)
+		httpx.Error(w, "No hay periodo académico activo", http.StatusNotFound)
 		return
 	}
 
@@ -335,42 +342,42 @@ func (h *MatriculaHandler) GetAsignaturasDisponibles(w http.ResponseWriter, r *h
 	asignaturas, err := pensumHandler.getAsignaturas(ctx.PensumID)
 	if err != nil {
 		log.Printf("Error obteniendo asignaturas del pensum: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	prereqMap, err := pensumHandler.buildPrereqMap(ctx.PensumID)
 	if err != nil {
 		log.Printf("Error obteniendo prerrequisitos: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	historialMap, err := pensumHandler.buildHistorialMap(ctx.EstudianteID)
 	if err != nil {
 		log.Printf("Error obteniendo historial académico: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	gruposMap, err := h.fetchGroupsForAsignaturas(ctx.Periodo.ID, ctx.EstudianteID, asignaturas)
 	if err != nil {
 		log.Printf("Error obteniendo grupos de asignaturas: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	creditosInscritos, err := h.fetchInscritosCredits(ctx.EstudianteID, ctx.Periodo.ID)
 	if err != nil {
 		log.Printf("Error calculando créditos matriculados: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	creditosMax, err := h.fetchCreditLimit(ctx.PensumID, ctx.Semestre)
 	if err != nil {
 		log.Printf("Error calculando límite de créditos: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -536,41 +543,41 @@ func (h *MatriculaHandler) GetAsignaturasDisponibles(w http.ResponseWriter, r *h
 func (h *MatriculaHandler) GetGruposAsignatura(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	if claims.Rol != constants.RolEstudiante {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
 	ctx, razon, err := h.prepareInscripcionContext(claims)
 	if err != nil {
 		log.Printf("Error preparando contexto de inscripción: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	if razon != "" {
-		http.Error(w, razon, http.StatusForbidden)
+		httpx.Error(w, razon, http.StatusForbidden)
 		return
 	}
 	if ctx.Periodo == nil {
-		http.Error(w, "No hay periodo académico activo", http.StatusNotFound)
+		httpx.Error(w, "No hay periodo académico activo", http.StatusNotFound)
 		return
 	}
 
 	idStr := mux.Vars(r)["id"]
 	asignaturaID, err := strconv.Atoi(idStr)
 	if err != nil || asignaturaID <= 0 {
-		http.Error(w, "ID de asignatura inválido", http.StatusBadRequest)
+		httpx.Error(w, "ID de asignatura inválido", http.StatusBadRequest)
 		return
 	}
 
 	groupsMap, err := h.fetchGroupsForAsignaturas(ctx.Periodo.ID, ctx.EstudianteID, []models.AsignaturaCompleta{{ID: asignaturaID}})
 	if err != nil {
 		log.Printf("Error obteniendo grupos para la asignatura: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -587,19 +594,19 @@ func (h *MatriculaHandler) GetGruposAsignatura(w http.ResponseWriter, r *http.Re
 func (h *MatriculaHandler) UpdateGrupoHorario(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	if claims.Rol != constants.RolJefe {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
 	idStr := mux.Vars(r)["id"]
 	grupoID, err := strconv.Atoi(idStr)
 	if err != nil || grupoID <= 0 {
-		http.Error(w, "ID de grupo inválido", http.StatusBadRequest)
+		httpx.Error(w, "ID de grupo inválido", http.StatusBadRequest)
 		return
 	}
 
@@ -615,7 +622,7 @@ func (h *MatriculaHandler) UpdateGrupoHorario(w http.ResponseWriter, r *http.Req
 	}{}
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Payload inválido", http.StatusBadRequest)
+		httpx.Error(w, "Payload inválido", http.StatusBadRequest)
 		return
 	}
 
@@ -628,11 +635,11 @@ func (h *MatriculaHandler) UpdateGrupoHorario(w http.ResponseWriter, r *http.Req
 	`, grupoID).Scan(&tieneLab)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "Grupo no encontrado", http.StatusNotFound)
+			httpx.Error(w, "Grupo no encontrado", http.StatusNotFound)
 			return
 		}
 		log.Printf("Error obteniendo asignatura del grupo %d: %v", grupoID, err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -647,14 +654,14 @@ func (h *MatriculaHandler) UpdateGrupoHorario(w http.ResponseWriter, r *http.Req
 		})
 	}
 	if err := validarPayloadHorarios(tieneLab, payloadItems); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		httpx.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	tx, err := h.db.Begin()
 	if err != nil {
 		log.Printf("Error iniciando transacción para UpdateGrupoHorario: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	defer func() {
@@ -668,7 +675,7 @@ func (h *MatriculaHandler) UpdateGrupoHorario(w http.ResponseWriter, r *http.Req
 		if _, err = tx.Exec(`UPDATE grupo SET docente = $1 WHERE id = $2`, *payload.Docente, grupoID); err != nil {
 			log.Printf("Error actualizando docente para grupo %d: %v", grupoID, err)
 			tx.Rollback()
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 	}
@@ -679,7 +686,7 @@ func (h *MatriculaHandler) UpdateGrupoHorario(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		log.Printf("Error obteniendo horarios existentes para grupo %d: %v", grupoID, err)
 		tx.Rollback()
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	for rows.Next() {
@@ -688,7 +695,7 @@ func (h *MatriculaHandler) UpdateGrupoHorario(w http.ResponseWriter, r *http.Req
 		if err := rows.Scan(&id, &dia, &componente); err != nil {
 			rows.Close()
 			tx.Rollback()
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 		key := normalizarComponente(componente) + "|" + dia
@@ -706,7 +713,7 @@ func (h *MatriculaHandler) UpdateGrupoHorario(w http.ResponseWriter, r *http.Req
 			if err != nil {
 				log.Printf("Error actualizando horario para grupo %d (%s): %v", grupoID, key, err)
 				tx.Rollback()
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
 			}
 			delete(existingKeys, key)
@@ -716,7 +723,7 @@ func (h *MatriculaHandler) UpdateGrupoHorario(w http.ResponseWriter, r *http.Req
 			if err != nil {
 				log.Printf("Error insertando horario para grupo %d (%s): %v", grupoID, key, err)
 				tx.Rollback()
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
 			}
 		}
@@ -728,14 +735,14 @@ func (h *MatriculaHandler) UpdateGrupoHorario(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			log.Printf("Error eliminando horario id %d del grupo %d: %v", existingID, grupoID, err)
 			tx.Rollback()
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 	}
 
 	if err = tx.Commit(); err != nil {
 		log.Printf("Error haciendo commit en UpdateGrupoHorario para grupo %d: %v", grupoID, err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -752,12 +759,12 @@ func (h *MatriculaHandler) UpdateGrupoHorario(w http.ResponseWriter, r *http.Req
 func (h *MatriculaHandler) InscribirAsignaturas(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	if claims.Rol != constants.RolEstudiante {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -768,27 +775,27 @@ func (h *MatriculaHandler) InscribirAsignaturas(w http.ResponseWriter, r *http.R
 	}{}
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Payload inválido", http.StatusBadRequest)
+		httpx.Error(w, "Payload inválido", http.StatusBadRequest)
 		return
 	}
 
 	if len(payload.GrupoIDs) == 0 && len(payload.GrupoCodigos) == 0 {
-		http.Error(w, "Debes seleccionar al menos un grupo para inscribir", http.StatusBadRequest)
+		httpx.Error(w, "Debes seleccionar al menos un grupo para inscribir", http.StatusBadRequest)
 		return
 	}
 
 	ctx, razon, err := h.prepareInscripcionContext(claims)
 	if err != nil {
 		log.Printf("Error preparando contexto de inscripción: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	if razon != "" {
-		http.Error(w, razon, http.StatusForbidden)
+		httpx.Error(w, razon, http.StatusForbidden)
 		return
 	}
 	if ctx.Periodo == nil {
-		http.Error(w, "No hay periodo académico activo", http.StatusNotFound)
+		httpx.Error(w, "No hay periodo académico activo", http.StatusNotFound)
 		return
 	}
 
@@ -809,13 +816,13 @@ func (h *MatriculaHandler) InscribirAsignaturas(w http.ResponseWriter, r *http.R
 			codes = append(codes, c)
 		}
 		if len(codes) == 0 {
-			http.Error(w, "Lista de códigos de grupo vacía", http.StatusBadRequest)
+			httpx.Error(w, "Lista de códigos de grupo vacía", http.StatusBadRequest)
 			return
 		}
 
 		// Only allow a single group code per request when using codes
 		if len(codes) > 1 {
-			http.Error(w, "Solo se permite inscribir un grupo por solicitud cuando se usan códigos", http.StatusBadRequest)
+			httpx.Error(w, "Solo se permite inscribir un grupo por solicitud cuando se usan códigos", http.StatusBadRequest)
 			return
 		}
 
@@ -823,7 +830,7 @@ func (h *MatriculaHandler) InscribirAsignaturas(w http.ResponseWriter, r *http.R
 		rowsCodes, err := h.db.Query(`SELECT id, codigo FROM grupo WHERE periodo_id = $1 AND codigo = ANY($2)`, ctx.Periodo.ID, pq.Array(codes))
 		if err != nil {
 			log.Printf("Error buscando grupos por código: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 		defer rowsCodes.Close()
@@ -843,7 +850,7 @@ func (h *MatriculaHandler) InscribirAsignaturas(w http.ResponseWriter, r *http.R
 		for _, c := range codes {
 			id, ok := codeToID[c]
 			if !ok {
-				http.Error(w, fmt.Sprintf("El código de grupo %s no existe en el periodo activo", c), http.StatusBadRequest)
+				httpx.Error(w, fmt.Sprintf("El código de grupo %s no existe en el periodo activo", c), http.StatusBadRequest)
 				return
 			}
 			uniqueGrupoIDs = append(uniqueGrupoIDs, id)
@@ -853,11 +860,11 @@ func (h *MatriculaHandler) InscribirAsignaturas(w http.ResponseWriter, r *http.R
 		seenGrupos := make(map[int]struct{})
 		for _, id := range payload.GrupoIDs {
 			if id <= 0 {
-				http.Error(w, "ID de grupo inválido", http.StatusBadRequest)
+				httpx.Error(w, "ID de grupo inválido", http.StatusBadRequest)
 				return
 			}
 			if _, ok := seenGrupos[id]; ok {
-				http.Error(w, "No puedes inscribir el mismo grupo dos veces", http.StatusBadRequest)
+				httpx.Error(w, "No puedes inscribir el mismo grupo dos veces", http.StatusBadRequest)
 				return
 			}
 			seenGrupos[id] = struct{}{}
@@ -873,7 +880,7 @@ func (h *MatriculaHandler) InscribirAsignaturas(w http.ResponseWriter, r *http.R
 	tx, err := h.db.Begin()
 	if err != nil {
 		log.Printf("Error iniciando transacción de inscripción: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	defer tx.Rollback()
@@ -888,11 +895,11 @@ func (h *MatriculaHandler) InscribirAsignaturas(w http.ResponseWriter, r *http.R
 		`, group.ID).Scan(&nuevoCupo)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				http.Error(w, fmt.Sprintf("El grupo %s se quedó sin cupo.", group.Codigo), http.StatusConflict)
+				httpx.Error(w, fmt.Sprintf("El grupo %s se quedó sin cupo.", group.Codigo), http.StatusConflict)
 				return
 			}
 			log.Printf("Error actualizando cupo del grupo: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 
@@ -902,14 +909,14 @@ func (h *MatriculaHandler) InscribirAsignaturas(w http.ResponseWriter, r *http.R
 		`, ctx.EstudianteID, group.AsignaturaID, ctx.Periodo.ID, group.ID)
 		if err != nil {
 			log.Printf("Error insertando registro en historial: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
 		log.Printf("Error confirmando inscripción: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -923,22 +930,22 @@ func (h *MatriculaHandler) InscribirAsignaturas(w http.ResponseWriter, r *http.R
 func (h *MatriculaHandler) GetHorarioActual(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	if claims.Rol != constants.RolEstudiante {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	response, status, err := h.service.GetHorarioActual(claims.Sub)
 	if status == http.StatusNotFound {
-		http.Error(w, "Estudiante no encontrado", http.StatusNotFound)
+		httpx.Error(w, "Estudiante no encontrado", http.StatusNotFound)
 		return
 	}
 	if err != nil {
 		log.Printf("Error obteniendo horario actual: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -952,12 +959,12 @@ func (h *MatriculaHandler) GetStudentMatricula(w http.ResponseWriter, r *http.Re
 
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	if claims.Rol != constants.RolJefe {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -965,20 +972,20 @@ func (h *MatriculaHandler) GetStudentMatricula(w http.ResponseWriter, r *http.Re
 	idStr := r.URL.Query().Get("id")
 	response, err := h.service.GetStudentMatricula(codigo, idStr)
 	if errors.Is(err, services.ErrMatriculaInvalidStudentID) {
-		http.Error(w, "ID de estudiante inválido", http.StatusBadRequest)
+		httpx.Error(w, "ID de estudiante inválido", http.StatusBadRequest)
 		return
 	}
 	if errors.Is(err, services.ErrMatriculaStudentNotFound) {
-		http.Error(w, "Estudiante no encontrado", http.StatusNotFound)
+		httpx.Error(w, "Estudiante no encontrado", http.StatusNotFound)
 		return
 	}
 	if errors.Is(err, services.ErrMatriculaMissingStudentParam) {
-		http.Error(w, "Falta parámetro 'codigo' o 'id'", http.StatusBadRequest)
+		httpx.Error(w, "Falta parámetro 'codigo' o 'id'", http.StatusBadRequest)
 		return
 	}
 	if err != nil {
 		log.Printf("Error en GetStudentMatricula: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -990,12 +997,12 @@ func (h *MatriculaHandler) GetStudentMatricula(w http.ResponseWriter, r *http.Re
 func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	if claims.Rol != constants.RolJefe {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -1003,7 +1010,7 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 	idStr := vars["id"]
 	estudianteID, err := strconv.Atoi(idStr)
 	if err != nil || estudianteID <= 0 {
-		http.Error(w, "ID de estudiante inválido", http.StatusBadRequest)
+		httpx.Error(w, "ID de estudiante inválido", http.StatusBadRequest)
 		return
 	}
 
@@ -1014,12 +1021,12 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 	}{}
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Payload inválido", http.StatusBadRequest)
+		httpx.Error(w, "Payload inválido", http.StatusBadRequest)
 		return
 	}
 
 	if len(payload.GrupoIDs) == 0 && len(payload.GrupoCodigos) == 0 {
-		http.Error(w, "Debes seleccionar al menos un grupo para inscribir", http.StatusBadRequest)
+		httpx.Error(w, "Debes seleccionar al menos un grupo para inscribir", http.StatusBadRequest)
 		return
 	}
 
@@ -1030,7 +1037,7 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 	err = h.db.QueryRow(queryPeriodo).Scan(&periodo.ID, &periodo.Year, &periodo.Semestre, &periodo.Activo, &periodo.Archivado)
 	if err != nil {
 		log.Printf("Error getting periodo activo: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -1039,11 +1046,11 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 	queryEst := `SELECT semestre FROM estudiante WHERE id = $1`
 	if err := h.db.QueryRow(queryEst, estudianteID).Scan(&semestre); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "Estudiante no encontrado", http.StatusNotFound)
+			httpx.Error(w, "Estudiante no encontrado", http.StatusNotFound)
 			return
 		}
 		log.Printf("Error leyendo estudiante: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -1072,14 +1079,14 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 			codes = append(codes, c)
 		}
 		if len(codes) == 0 {
-			http.Error(w, "Lista de códigos de grupo vacía", http.StatusBadRequest)
+			httpx.Error(w, "Lista de códigos de grupo vacía", http.StatusBadRequest)
 			return
 		}
 
 		rowsCodes, err := h.db.Query(`SELECT id, codigo FROM grupo WHERE periodo_id = $1 AND codigo = ANY($2)`, periodo.ID, pq.Array(codes))
 		if err != nil {
 			log.Printf("Error buscando grupos por código (jefe): %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 		defer rowsCodes.Close()
@@ -1098,7 +1105,7 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 		for _, c := range codes {
 			id, ok := codeToID[c]
 			if !ok {
-				http.Error(w, fmt.Sprintf("El código de grupo %s no existe en el periodo activo", c), http.StatusBadRequest)
+				httpx.Error(w, fmt.Sprintf("El código de grupo %s no existe en el periodo activo", c), http.StatusBadRequest)
 				return
 			}
 			uniqueGrupoIDs = append(uniqueGrupoIDs, id)
@@ -1106,18 +1113,18 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 
 		// Only allow a single group code per jefe request when using codes
 		if len(codes) > 1 {
-			http.Error(w, "Solo se permite inscribir un grupo por solicitud cuando se usan códigos", http.StatusBadRequest)
+			httpx.Error(w, "Solo se permite inscribir un grupo por solicitud cuando se usan códigos", http.StatusBadRequest)
 			return
 		}
 	} else {
 		seenGrupos := make(map[int]struct{})
 		for _, id := range payload.GrupoIDs {
 			if id <= 0 {
-				http.Error(w, "ID de grupo inválido", http.StatusBadRequest)
+				httpx.Error(w, "ID de grupo inválido", http.StatusBadRequest)
 				return
 			}
 			if _, ok := seenGrupos[id]; ok {
-				http.Error(w, "No puedes inscribir el mismo grupo dos veces", http.StatusBadRequest)
+				httpx.Error(w, "No puedes inscribir el mismo grupo dos veces", http.StatusBadRequest)
 				return
 			}
 			seenGrupos[id] = struct{}{}
@@ -1135,7 +1142,7 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 	rows, err := h.db.Query(query, periodo.ID, pq.Array(uniqueGrupoIDs))
 	if err != nil {
 		log.Printf("Error obteniendo grupos solicitados (jefe): %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -1147,12 +1154,12 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 		var reg groupRecord
 		if err := rows.Scan(&reg.ID, &reg.Codigo, &reg.AsignaturaID, &reg.CupoDisponible, &reg.CupoMax, &reg.Creditos); err != nil {
 			log.Printf("Error escaneando grupo (jefe): %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 
 		if reg.CupoDisponible <= 0 {
-			http.Error(w, fmt.Sprintf("El grupo %s ya no tiene cupos disponibles.", reg.Codigo), http.StatusConflict)
+			httpx.Error(w, fmt.Sprintf("El grupo %s ya no tiene cupos disponibles.", reg.Codigo), http.StatusConflict)
 			return
 		}
 
@@ -1164,7 +1171,7 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 		// (Skipping some checks to keep implementation concise)
 
 		if _, ok := selectedAsignaturas[reg.AsignaturaID]; ok {
-			http.Error(w, "Solo puedes seleccionar un grupo por asignatura.", http.StatusBadRequest)
+			httpx.Error(w, "Solo puedes seleccionar un grupo por asignatura.", http.StatusBadRequest)
 			return
 		}
 
@@ -1174,12 +1181,12 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 	}
 
 	if len(selectedGroups) != len(uniqueGrupoIDs) {
-		http.Error(w, "Algunos grupos solicitados no existen o no pertenecen al periodo activo.", http.StatusBadRequest)
+		httpx.Error(w, "Algunos grupos solicitados no existen o no pertenecen al periodo activo.", http.StatusBadRequest)
 		return
 	}
 
 	if err := h.validateGroupsHorarioCompleto(uniqueGrupoIDs); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		httpx.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
 
@@ -1187,14 +1194,14 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 	existingHorarios, err := h.fetchHorariosInscritos(estudianteID, periodo.ID)
 	if err != nil {
 		log.Printf("Error obteniendo horarios matriculados (jefe): %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	nuevosHorarios, err := h.fetchGroupScheduleBlocks(uniqueGrupoIDs)
 	if err != nil {
 		log.Printf("Error obteniendo horarios de los grupos a inscribir (jefe): %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -1202,13 +1209,13 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 	for _, bloque := range nuevosHorarios {
 		for _, existente := range existingHorarios {
 			if horariosOverlap(bloque, existente) {
-				http.Error(w, "Conflicto de horario con asignaturas ya matriculadas.", http.StatusConflict)
+				httpx.Error(w, "Conflicto de horario con asignaturas ya matriculadas.", http.StatusConflict)
 				return
 			}
 		}
 		for _, previo := range checked {
 			if horariosOverlap(bloque, previo) {
-				http.Error(w, "Hay conflicto de horario entre dos grupos seleccionados.", http.StatusConflict)
+				httpx.Error(w, "Hay conflicto de horario entre dos grupos seleccionados.", http.StatusConflict)
 				return
 			}
 		}
@@ -1222,7 +1229,7 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 	creditosInscritos, err := h.fetchInscritosCredits(estudianteID, periodo.ID)
 	if err != nil {
 		log.Printf("Error calculando créditos matriculados (jefe): %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -1236,14 +1243,14 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 	}
 
 	if creditosMax > 0 && creditosInscritos+creditosNuevos > creditosMax {
-		http.Error(w, fmt.Sprintf("Inscribir estos grupos supera el límite de %d créditos para el semestre %d.", creditosMax, semestre), http.StatusConflict)
+		httpx.Error(w, fmt.Sprintf("Inscribir estos grupos supera el límite de %d créditos para el semestre %d.", creditosMax, semestre), http.StatusConflict)
 		return
 	}
 
 	tx, err := h.db.Begin()
 	if err != nil {
 		log.Printf("Error iniciando transacción de inscripción (jefe): %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	defer tx.Rollback()
@@ -1258,11 +1265,11 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 		`, group.ID).Scan(&nuevoCupo)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				http.Error(w, fmt.Sprintf("El grupo %s se quedó sin cupo.", group.Codigo), http.StatusConflict)
+				httpx.Error(w, fmt.Sprintf("El grupo %s se quedó sin cupo.", group.Codigo), http.StatusConflict)
 				return
 			}
 			log.Printf("Error actualizando cupo del grupo (jefe): %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 
@@ -1272,14 +1279,14 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 		`, estudianteID, group.AsignaturaID, periodo.ID, group.ID)
 		if err != nil {
 			log.Printf("Error insertando registro en historial (jefe): %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
 		log.Printf("Error confirmando inscripción (jefe): %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -1295,12 +1302,12 @@ func (h *MatriculaHandler) JefeInscribirAsignaturas(w http.ResponseWriter, r *ht
 func (h *MatriculaHandler) JefeDesmatricularGrupo(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	if claims.Rol != constants.RolJefe {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -1308,7 +1315,7 @@ func (h *MatriculaHandler) JefeDesmatricularGrupo(w http.ResponseWriter, r *http
 	idStr := vars["id"]
 	estudianteID, err := strconv.Atoi(idStr)
 	if err != nil || estudianteID <= 0 {
-		http.Error(w, "ID de estudiante inválido", http.StatusBadRequest)
+		httpx.Error(w, "ID de estudiante inválido", http.StatusBadRequest)
 		return
 	}
 
@@ -1317,11 +1324,11 @@ func (h *MatriculaHandler) JefeDesmatricularGrupo(w http.ResponseWriter, r *http
 		GrupoID int `json:"grupo_id"`
 	}{}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Payload inválido", http.StatusBadRequest)
+		httpx.Error(w, "Payload inválido", http.StatusBadRequest)
 		return
 	}
 	if payload.GrupoID <= 0 {
-		http.Error(w, "grupo_id inválido", http.StatusBadRequest)
+		httpx.Error(w, "grupo_id inválido", http.StatusBadRequest)
 		return
 	}
 
@@ -1332,7 +1339,7 @@ func (h *MatriculaHandler) JefeDesmatricularGrupo(w http.ResponseWriter, r *http
 	tx, err := h.db.Begin()
 	if err != nil {
 		log.Printf("Error iniciando transacción desmatricular (jefe): %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	defer tx.Rollback()
@@ -1341,13 +1348,13 @@ func (h *MatriculaHandler) JefeDesmatricularGrupo(w http.ResponseWriter, r *http
 	res, err := tx.Exec(`DELETE FROM historial_academico WHERE id_estudiante = $1 AND grupo_id = $2 AND estado = 'matriculada'`, estudianteID, payload.GrupoID)
 	if err != nil {
 		log.Printf("Error eliminando historial (jefe): %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	affected, _ := res.RowsAffected()
 	log.Printf("JefeDesmatricularGrupo: rows affected when deleting historial = %d", affected)
 	if affected == 0 {
-		http.Error(w, "No se encontró matrícula para el estudiante y grupo especificado.", http.StatusNotFound)
+		httpx.Error(w, "No se encontró matrícula para el estudiante y grupo especificado.", http.StatusNotFound)
 		return
 	}
 
@@ -1355,13 +1362,13 @@ func (h *MatriculaHandler) JefeDesmatricularGrupo(w http.ResponseWriter, r *http
 	_, err = tx.Exec(`UPDATE grupo SET cupo_disponible = LEAST(cupo_disponible + 1, cupo_max) WHERE id = $1`, payload.GrupoID)
 	if err != nil {
 		log.Printf("Error incrementando cupo (jefe): %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
 		log.Printf("Error confirmando desmatriculación (jefe): %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -1753,18 +1760,18 @@ type AgregarMateriaModificacionesRequest struct {
 func (h *MatriculaHandler) ValidarModificaciones(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	if claims.Rol != constants.RolEstudiante {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	resp, err := h.service.ValidarModificaciones(claims)
 	if err != nil {
 		log.Printf("Error validando modificaciones: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -1794,12 +1801,12 @@ func (h *MatriculaHandler) prepareModificacionesContext(claims *models.JWTClaims
 func (h *MatriculaHandler) GetModificacionesData(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	if claims.Rol != constants.RolEstudiante {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -1809,12 +1816,12 @@ func (h *MatriculaHandler) GetModificacionesData(w http.ResponseWriter, r *http.
 	ctx, razon, err := h.prepareModificacionesContext(claims)
 	if err != nil {
 		log.Printf("Error preparando contexto de modificaciones: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	if razon != "" {
-		http.Error(w, razon, http.StatusForbidden)
+		httpx.Error(w, razon, http.StatusForbidden)
 		return
 	}
 
@@ -1832,7 +1839,7 @@ func (h *MatriculaHandler) GetModificacionesData(w http.ResponseWriter, r *http.
 	)
 	if err != nil {
 		log.Printf("Error construyendo datos de modificaciones: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	if reason != "" {
@@ -1845,7 +1852,7 @@ func (h *MatriculaHandler) GetModificacionesData(w http.ResponseWriter, r *http.
 	asignaturasDisponibles, err := h.getAsignaturasDisponiblesModificaciones(ctx)
 	if err != nil {
 		log.Printf("Error obteniendo asignaturas disponibles: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -2124,12 +2131,12 @@ func toServiceMatriculaContext(ctx *inscripcionContext) *services.MatriculaConte
 func (h *MatriculaHandler) JefeGetModificacionesData(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	if claims.Rol != constants.RolJefe {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -2139,24 +2146,24 @@ func (h *MatriculaHandler) JefeGetModificacionesData(w http.ResponseWriter, r *h
 	vars := mux.Vars(r)
 	idStr := vars["id"]
 	if idStr == "" {
-		http.Error(w, "Falta id de estudiante en la ruta", http.StatusBadRequest)
+		httpx.Error(w, "Falta id de estudiante en la ruta", http.StatusBadRequest)
 		return
 	}
 	estudianteID, err := strconv.Atoi(idStr)
 	if err != nil || estudianteID <= 0 {
-		http.Error(w, "ID de estudiante inválido", http.StatusBadRequest)
+		httpx.Error(w, "ID de estudiante inválido", http.StatusBadRequest)
 		return
 	}
 
 	ctx, razon, err := h.prepareModificacionesContextForEstudiante(estudianteID)
 	if err != nil {
 		log.Printf("Error preparando contexto de modificaciones (jefe): %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	if razon != "" {
-		http.Error(w, razon, http.StatusForbidden)
+		httpx.Error(w, razon, http.StatusForbidden)
 		return
 	}
 
@@ -2174,7 +2181,7 @@ func (h *MatriculaHandler) JefeGetModificacionesData(w http.ResponseWriter, r *h
 	)
 	if err != nil {
 		log.Printf("Error construyendo datos de modificaciones (jefe): %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	if reason != "" {
@@ -2186,7 +2193,7 @@ func (h *MatriculaHandler) JefeGetModificacionesData(w http.ResponseWriter, r *h
 	asignaturasDisponibles, err := h.getAsignaturasDisponiblesModificaciones(ctx)
 	if err != nil {
 		log.Printf("Error obteniendo asignaturas disponibles (jefe): %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -2248,35 +2255,35 @@ func (h *MatriculaHandler) fetchProgramaPorGrupo(_ int, asignaturaID int) (*Prog
 func (h *MatriculaHandler) RetirarMateria(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	if claims.Rol != constants.RolEstudiante {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
 	var req RetirarMateriaRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Payload inválido", http.StatusBadRequest)
+		httpx.Error(w, "Payload inválido", http.StatusBadRequest)
 		return
 	}
 
 	if req.HistorialID <= 0 {
-		http.Error(w, "ID de historial inválido", http.StatusBadRequest)
+		httpx.Error(w, "ID de historial inválido", http.StatusBadRequest)
 		return
 	}
 
 	ctx, razon, err := h.prepareModificacionesContext(claims)
 	if err != nil {
 		log.Printf("Error preparando contexto de modificaciones: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	if razon != "" {
-		http.Error(w, razon, http.StatusForbidden)
+		httpx.Error(w, razon, http.StatusForbidden)
 		return
 	}
 
@@ -2293,30 +2300,30 @@ func (h *MatriculaHandler) RetirarMateria(w http.ResponseWriter, r *http.Request
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "No se encontró la materia matriculada", http.StatusNotFound)
+			httpx.Error(w, "No se encontró la materia matriculada", http.StatusNotFound)
 			return
 		}
 		log.Printf("Error verificando historial: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	if estado != "matriculada" {
-		http.Error(w, "La materia no está en estado matriculada", http.StatusBadRequest)
+		httpx.Error(w, "La materia no está en estado matriculada", http.StatusBadRequest)
 		return
 	}
 
 	// Verificar que NO sea atrasada ni perdida
 	esAtrasada, esPerdida := h.determinarEstadoMateria(ctx.EstudianteID, asignaturaID, ctx.Periodo.ID)
 	if esAtrasada || esPerdida {
-		http.Error(w, "No puedes retirar esta materia porque está atrasada o perdida", http.StatusForbidden)
+		httpx.Error(w, "No puedes retirar esta materia porque está atrasada o perdida", http.StatusForbidden)
 		return
 	}
 
 	tx, err := h.db.Begin()
 	if err != nil {
 		log.Printf("Error iniciando transacción: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	defer tx.Rollback()
@@ -2329,7 +2336,7 @@ func (h *MatriculaHandler) RetirarMateria(w http.ResponseWriter, r *http.Request
 	`, grupoID)
 	if err != nil {
 		log.Printf("Error liberando cupo: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -2340,13 +2347,13 @@ func (h *MatriculaHandler) RetirarMateria(w http.ResponseWriter, r *http.Request
 	`, req.HistorialID)
 	if err != nil {
 		log.Printf("Error eliminando historial: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
 		log.Printf("Error confirmando retiro: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -2364,35 +2371,35 @@ func (h *MatriculaHandler) RetirarMateria(w http.ResponseWriter, r *http.Request
 func (h *MatriculaHandler) AgregarMateriaModificaciones(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	if claims.Rol != constants.RolEstudiante {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
 	var req AgregarMateriaModificacionesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Payload inválido", http.StatusBadRequest)
+		httpx.Error(w, "Payload inválido", http.StatusBadRequest)
 		return
 	}
 
 	if len(req.GrupoIDs) == 0 {
-		http.Error(w, "Debes seleccionar al menos un grupo para agregar", http.StatusBadRequest)
+		httpx.Error(w, "Debes seleccionar al menos un grupo para agregar", http.StatusBadRequest)
 		return
 	}
 
 	ctx, razon, err := h.prepareModificacionesContext(claims)
 	if err != nil {
 		log.Printf("Error preparando contexto de modificaciones: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	if razon != "" {
-		http.Error(w, razon, http.StatusForbidden)
+		httpx.Error(w, razon, http.StatusForbidden)
 		return
 	}
 
@@ -2403,11 +2410,11 @@ func (h *MatriculaHandler) AgregarMateriaModificaciones(w http.ResponseWriter, r
 	seenGrupos := make(map[int]struct{})
 	for _, id := range req.GrupoIDs {
 		if id <= 0 {
-			http.Error(w, "ID de grupo inválido", http.StatusBadRequest)
+			httpx.Error(w, "ID de grupo inválido", http.StatusBadRequest)
 			return
 		}
 		if _, ok := seenGrupos[id]; ok {
-			http.Error(w, "No puedes agregar el mismo grupo dos veces", http.StatusBadRequest)
+			httpx.Error(w, "No puedes agregar el mismo grupo dos veces", http.StatusBadRequest)
 			return
 		}
 		seenGrupos[id] = struct{}{}
@@ -2423,7 +2430,7 @@ func (h *MatriculaHandler) AgregarMateriaModificaciones(w http.ResponseWriter, r
 	tx, err := h.db.Begin()
 	if err != nil {
 		log.Printf("Error iniciando transacción: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	defer tx.Rollback()
@@ -2438,11 +2445,11 @@ func (h *MatriculaHandler) AgregarMateriaModificaciones(w http.ResponseWriter, r
 		`, group.ID).Scan(&nuevoCupo)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				http.Error(w, fmt.Sprintf("El grupo %s se quedó sin cupo.", group.Codigo), http.StatusConflict)
+				httpx.Error(w, fmt.Sprintf("El grupo %s se quedó sin cupo.", group.Codigo), http.StatusConflict)
 				return
 			}
 			log.Printf("Error actualizando cupo: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 
@@ -2452,14 +2459,14 @@ func (h *MatriculaHandler) AgregarMateriaModificaciones(w http.ResponseWriter, r
 		`, ctx.EstudianteID, group.AsignaturaID, ctx.Periodo.ID, group.ID)
 		if err != nil {
 			log.Printf("Error insertando historial: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
 		log.Printf("Error confirmando inscripción: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -2498,7 +2505,7 @@ type SolicitudModificacion struct {
 func (h *MatriculaHandler) GetSolicitudesEstudiante(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Usuario no autenticado", http.StatusUnauthorized)
+		httpx.Error(w, "Usuario no autenticado", http.StatusUnauthorized)
 		return
 	}
 
@@ -2506,7 +2513,7 @@ func (h *MatriculaHandler) GetSolicitudesEstudiante(w http.ResponseWriter, r *ht
 	var estudianteID int
 	err = h.db.QueryRow(`SELECT id FROM estudiante WHERE usuario_id = $1`, claims.Sub).Scan(&estudianteID)
 	if err != nil {
-		http.Error(w, "Estudiante no encontrado", http.StatusNotFound)
+		httpx.Error(w, "Estudiante no encontrado", http.StatusNotFound)
 		return
 	}
 
@@ -2514,7 +2521,7 @@ func (h *MatriculaHandler) GetSolicitudesEstudiante(w http.ResponseWriter, r *ht
 	var periodoID int
 	err = h.db.QueryRow(`SELECT id FROM periodo_academico WHERE activo = TRUE LIMIT 1`).Scan(&periodoID)
 	if err != nil {
-		http.Error(w, "No hay periodo activo", http.StatusBadRequest)
+		httpx.Error(w, "No hay periodo activo", http.StatusBadRequest)
 		return
 	}
 
@@ -2531,7 +2538,7 @@ func (h *MatriculaHandler) GetSolicitudesEstudiante(w http.ResponseWriter, r *ht
         ORDER BY sm.fecha_solicitud DESC
     `, estudianteID, periodoID)
 	if err != nil {
-		http.Error(w, "Error consultando solicitudes", http.StatusInternalServerError)
+		httpx.Error(w, "Error consultando solicitudes", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -2614,27 +2621,27 @@ func (h *MatriculaHandler) GetSolicitudesEstudiante(w http.ResponseWriter, r *ht
 func (h *MatriculaHandler) CrearSolicitudModificacion(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Usuario no autenticado", http.StatusUnauthorized)
+		httpx.Error(w, "Usuario no autenticado", http.StatusUnauthorized)
 		return
 	}
 
 	if claims.Rol != constants.RolEstudiante {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
 	ctx, razon, err := h.prepareModificacionesContext(claims)
 	if err != nil {
 		log.Printf("Error preparando contexto de modificaciones: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	if razon != "" {
-		http.Error(w, razon, http.StatusForbidden)
+		httpx.Error(w, razon, http.StatusForbidden)
 		return
 	}
 	if ctx.Periodo == nil {
-		http.Error(w, "No hay periodo activo", http.StatusBadRequest)
+		httpx.Error(w, "No hay periodo activo", http.StatusBadRequest)
 		return
 	}
 
@@ -2644,7 +2651,7 @@ func (h *MatriculaHandler) CrearSolicitudModificacion(w http.ResponseWriter, r *
 		WHERE estudiante_id = $1 AND periodo_id = $2 AND estado = 'pendiente'
 	`, ctx.EstudianteID, ctx.Periodo.ID).Scan(&count)
 	if err == nil && count > 0 {
-		http.Error(w, "Ya tienes una solicitud pendiente", http.StatusBadRequest)
+		httpx.Error(w, "Ya tienes una solicitud pendiente", http.StatusBadRequest)
 		return
 	}
 
@@ -2653,7 +2660,7 @@ func (h *MatriculaHandler) CrearSolicitudModificacion(w http.ResponseWriter, r *
 		GruposRetirar json.RawMessage `json:"grupos_retirar"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Payload inválido", http.StatusBadRequest)
+		httpx.Error(w, "Payload inválido", http.StatusBadRequest)
 		return
 	}
 	if payload.GruposAgregar == nil {
@@ -2676,7 +2683,7 @@ func (h *MatriculaHandler) CrearSolicitudModificacion(w http.ResponseWriter, r *
 	`, ctx.EstudianteID, ctx.ProgramaID, ctx.Periodo.ID, agregarJSON, retirarJSON).Scan(&solicitudID)
 	if err != nil {
 		log.Printf("Error creando solicitud: %v", err)
-		http.Error(w, "Error creando solicitud", http.StatusInternalServerError)
+		httpx.Error(w, "Error creando solicitud", http.StatusInternalServerError)
 		return
 	}
 
@@ -2698,7 +2705,7 @@ func (h *MatriculaHandler) CrearSolicitudModificacion(w http.ResponseWriter, r *
 func (h *MatriculaHandler) GetSolicitudesPorPrograma(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Usuario no autenticado", http.StatusUnauthorized)
+		httpx.Error(w, "Usuario no autenticado", http.StatusUnauthorized)
 		return
 	}
 
@@ -2710,7 +2717,7 @@ func (h *MatriculaHandler) GetSolicitudesPorPrograma(w http.ResponseWriter, r *h
 		estado = ""
 	}
 	if estado != "" && estado != "pendiente" && estado != "aprobada" && estado != "rechazada" {
-		http.Error(w, "Estado inválido", http.StatusBadRequest)
+		httpx.Error(w, "Estado inválido", http.StatusBadRequest)
 		return
 	}
 
@@ -2719,11 +2726,11 @@ func (h *MatriculaHandler) GetSolicitudesPorPrograma(w http.ResponseWriter, r *h
 	err = h.db.QueryRow(`SELECT id FROM jefe_departamental WHERE usuario_id = $1`, claims.Sub).Scan(&jefeID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "Jefe departamental no encontrado", http.StatusNotFound)
+			httpx.Error(w, "Jefe departamental no encontrado", http.StatusNotFound)
 			return
 		}
 		log.Printf("Error verificando jefe: %v", err)
-		http.Error(w, "Error verificando información del jefe", http.StatusInternalServerError)
+		httpx.Error(w, "Error verificando información del jefe", http.StatusInternalServerError)
 		return
 	}
 
@@ -2742,7 +2749,7 @@ func (h *MatriculaHandler) GetSolicitudesPorPrograma(w http.ResponseWriter, r *h
 	var totalItems int
 	if err := h.db.QueryRow(countQuery, args...).Scan(&totalItems); err != nil {
 		log.Printf("Error contando solicitudes: %v", err)
-		http.Error(w, "Error consultando solicitudes", http.StatusInternalServerError)
+		httpx.Error(w, "Error consultando solicitudes", http.StatusInternalServerError)
 		return
 	}
 
@@ -2765,7 +2772,7 @@ func (h *MatriculaHandler) GetSolicitudesPorPrograma(w http.ResponseWriter, r *h
 	rows, err := h.db.Query(listQuery, args...)
 	if err != nil {
 		log.Printf("Error consultando solicitudes: %v", err)
-		http.Error(w, "Error consultando solicitudes", http.StatusInternalServerError)
+		httpx.Error(w, "Error consultando solicitudes", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -2847,7 +2854,7 @@ func (h *MatriculaHandler) GetSolicitudesPorPrograma(w http.ResponseWriter, r *h
 func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Usuario no autenticado", http.StatusUnauthorized)
+		httpx.Error(w, "Usuario no autenticado", http.StatusUnauthorized)
 		return
 	}
 
@@ -2859,12 +2866,12 @@ func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r
 		Observacion string `json:"observacion"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Payload inválido", http.StatusBadRequest)
+		httpx.Error(w, "Payload inválido", http.StatusBadRequest)
 		return
 	}
 
 	if payload.Estado != "aprobada" && payload.Estado != "rechazada" {
-		http.Error(w, "Estado inválido", http.StatusBadRequest)
+		httpx.Error(w, "Estado inválido", http.StatusBadRequest)
 		return
 	}
 
@@ -2872,7 +2879,7 @@ func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r
 	var jefeID int
 	err = h.db.QueryRow(`SELECT id FROM jefe_departamental WHERE usuario_id = $1`, claims.Sub).Scan(&jefeID)
 	if err != nil {
-		http.Error(w, "Jefe departamental no encontrado", http.StatusNotFound)
+		httpx.Error(w, "Jefe departamental no encontrado", http.StatusNotFound)
 		return
 	}
 
@@ -2887,23 +2894,23 @@ func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r
 	`, solicitudID).Scan(&estudianteID, &periodoID, &programaID, &estadoActual, &gruposAgregar, &gruposRetirar)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "Solicitud no encontrada", http.StatusNotFound)
+			httpx.Error(w, "Solicitud no encontrada", http.StatusNotFound)
 			return
 		}
 		log.Printf("Error obteniendo solicitud: %v", err)
-		http.Error(w, "Error obteniendo información de la solicitud", http.StatusInternalServerError)
+		httpx.Error(w, "Error obteniendo información de la solicitud", http.StatusInternalServerError)
 		return
 	}
 	if programaID != claims.ProgramaID {
-		http.Error(w, "No tienes permisos para validar esta solicitud", http.StatusForbidden)
+		httpx.Error(w, "No tienes permisos para validar esta solicitud", http.StatusForbidden)
 		return
 	}
 	if estadoActual != "pendiente" {
-		http.Error(w, "La solicitud ya fue procesada", http.StatusConflict)
+		httpx.Error(w, "La solicitud ya fue procesada", http.StatusConflict)
 		return
 	}
 	if payload.Estado == "rechazada" && payload.Observacion == "" {
-		http.Error(w, "La observación es obligatoria al rechazar", http.StatusBadRequest)
+		httpx.Error(w, "La observación es obligatoria al rechazar", http.StatusBadRequest)
 		return
 	}
 
@@ -2921,19 +2928,19 @@ func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r
 
 		var retirar []solicitudGrupoRetirarStored
 		if err := json.Unmarshal(retirarJSON, &retirar); err != nil {
-			http.Error(w, "Formato inválido en grupos a retirar", http.StatusBadRequest)
+			httpx.Error(w, "Formato inválido en grupos a retirar", http.StatusBadRequest)
 			return
 		}
 		var agregar []solicitudGrupoAgregarStored
 		if err := json.Unmarshal(agregarJSON, &agregar); err != nil {
-			http.Error(w, "Formato inválido en grupos a agregar", http.StatusBadRequest)
+			httpx.Error(w, "Formato inválido en grupos a agregar", http.StatusBadRequest)
 			return
 		}
 
 		tx, err := h.db.Begin()
 		if err != nil {
 			log.Printf("Error iniciando transacción: %v", err)
-			http.Error(w, "Error procesando solicitud", http.StatusInternalServerError)
+			httpx.Error(w, "Error procesando solicitud", http.StatusInternalServerError)
 			return
 		}
 		defer tx.Rollback()
@@ -2946,12 +2953,12 @@ func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r
 			`, r.GrupoID)
 			if err != nil {
 				log.Printf("Error liberando cupo grupo %d: %v", r.GrupoID, err)
-				http.Error(w, "Error aplicando retiros de la solicitud", http.StatusInternalServerError)
+				httpx.Error(w, "Error aplicando retiros de la solicitud", http.StatusInternalServerError)
 				return
 			}
 			affectedCupo, _ := resCupo.RowsAffected()
 			if affectedCupo == 0 {
-				http.Error(w, fmt.Sprintf("No existe el grupo %d para liberar cupo.", r.GrupoID), http.StatusBadRequest)
+				httpx.Error(w, fmt.Sprintf("No existe el grupo %d para liberar cupo.", r.GrupoID), http.StatusBadRequest)
 				return
 			}
 
@@ -2961,12 +2968,12 @@ func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r
 			`, r.HistorialID, estudianteID, periodoID)
 			if err != nil {
 				log.Printf("Error eliminando historial %d: %v", r.HistorialID, err)
-				http.Error(w, "Error aplicando retiros de la solicitud", http.StatusInternalServerError)
+				httpx.Error(w, "Error aplicando retiros de la solicitud", http.StatusInternalServerError)
 				return
 			}
 			affectedHistorial, _ := resHistorial.RowsAffected()
 			if affectedHistorial == 0 {
-				http.Error(w, "La solicitud contiene retiros inválidos o ya aplicados.", http.StatusConflict)
+				httpx.Error(w, "La solicitud contiene retiros inválidos o ya aplicados.", http.StatusConflict)
 				return
 			}
 		}
@@ -2980,11 +2987,11 @@ func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r
 			`, estudianteID, a.AsignaturaID, periodoID).Scan(&yaMatriculado)
 			if err != nil {
 				log.Printf("Error verificando matrícula previa de asignatura %d: %v", a.AsignaturaID, err)
-				http.Error(w, "Error aplicando adiciones de la solicitud", http.StatusInternalServerError)
+				httpx.Error(w, "Error aplicando adiciones de la solicitud", http.StatusInternalServerError)
 				return
 			}
 			if yaMatriculado > 0 {
-				http.Error(w, "La solicitud incluye una asignatura ya matriculada.", http.StatusConflict)
+				httpx.Error(w, "La solicitud incluye una asignatura ya matriculada.", http.StatusConflict)
 				return
 			}
 
@@ -2997,11 +3004,11 @@ func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r
 			`, a.GrupoID).Scan(&nuevoCupo)
 			if err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
-					http.Error(w, "Uno de los grupos de la solicitud ya no tiene cupos disponibles.", http.StatusConflict)
+					httpx.Error(w, "Uno de los grupos de la solicitud ya no tiene cupos disponibles.", http.StatusConflict)
 					return
 				}
 				log.Printf("Error reduciendo cupo grupo %d: %v", a.GrupoID, err)
-				http.Error(w, "Error aplicando adiciones de la solicitud", http.StatusInternalServerError)
+				httpx.Error(w, "Error aplicando adiciones de la solicitud", http.StatusInternalServerError)
 				return
 			}
 
@@ -3011,7 +3018,7 @@ func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r
 			`, estudianteID, a.AsignaturaID, periodoID, a.GrupoID)
 			if err != nil {
 				log.Printf("Error insertando historial para grupo %d: %v", a.GrupoID, err)
-				http.Error(w, "Error aplicando adiciones de la solicitud", http.StatusInternalServerError)
+				httpx.Error(w, "Error aplicando adiciones de la solicitud", http.StatusInternalServerError)
 				return
 			}
 		}
@@ -3023,18 +3030,18 @@ func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r
 		`, payload.Estado, payload.Observacion, jefeID, solicitudID)
 		if err != nil {
 			log.Printf("Error actualizando solicitud: %v", err)
-			http.Error(w, "Error actualizando solicitud", http.StatusInternalServerError)
+			httpx.Error(w, "Error actualizando solicitud", http.StatusInternalServerError)
 			return
 		}
 		affectedUpdate, _ := resUpdate.RowsAffected()
 		if affectedUpdate == 0 {
-			http.Error(w, "La solicitud ya fue procesada por otro usuario", http.StatusConflict)
+			httpx.Error(w, "La solicitud ya fue procesada por otro usuario", http.StatusConflict)
 			return
 		}
 
 		if err := tx.Commit(); err != nil {
 			log.Printf("Error confirmando transacción: %v", err)
-			http.Error(w, "Error aplicando cambios", http.StatusInternalServerError)
+			httpx.Error(w, "Error aplicando cambios", http.StatusInternalServerError)
 			return
 		}
 	} else {
@@ -3046,12 +3053,12 @@ func (h *MatriculaHandler) ValidarSolicitudModificacion(w http.ResponseWriter, r
 		`, payload.Estado, payload.Observacion, jefeID, solicitudID, claims.ProgramaID)
 		if err != nil {
 			log.Printf("Error actualizando solicitud: %v", err)
-			http.Error(w, "Error actualizando solicitud", http.StatusInternalServerError)
+			httpx.Error(w, "Error actualizando solicitud", http.StatusInternalServerError)
 			return
 		}
 		affected, _ := res.RowsAffected()
 		if affected == 0 {
-			http.Error(w, "La solicitud no está pendiente o no pertenece a tu programa", http.StatusConflict)
+			httpx.Error(w, "La solicitud no está pendiente o no pertenece a tu programa", http.StatusConflict)
 			return
 		}
 	}
@@ -3087,14 +3094,14 @@ type solicitudGrupoAgregar struct {
 }
 
 type solicitudGrupoRetirar struct {
-	HistorialID      int                         `json:"historial_id"`
-	GrupoID          int                         `json:"grupo_id"`
-	GrupoCodigo      string                      `json:"grupo_codigo"`
-	AsignaturaID     int                         `json:"asignatura_id"`
-	AsignaturaCodigo string                      `json:"asignatura_codigo"`
-	AsignaturaNombre string                      `json:"asignatura_nombre"`
-	Creditos         int                         `json:"creditos"`
-	Horarios         []models.HorarioDisponible  `json:"horarios,omitempty"`
+	HistorialID      int                        `json:"historial_id"`
+	GrupoID          int                        `json:"grupo_id"`
+	GrupoCodigo      string                     `json:"grupo_codigo"`
+	AsignaturaID     int                        `json:"asignatura_id"`
+	AsignaturaCodigo string                     `json:"asignatura_codigo"`
+	AsignaturaNombre string                     `json:"asignatura_nombre"`
+	Creditos         int                        `json:"creditos"`
+	Horarios         []models.HorarioDisponible `json:"horarios,omitempty"`
 }
 
 type materiaVistaPrevia struct {
@@ -3184,12 +3191,12 @@ func (h *MatriculaHandler) responderVistaPreviaHistorial(w http.ResponseWriter, 
 
 	creditosInscritos, err := h.fetchInscritosCredits(p.estudianteID, p.periodoID)
 	if err != nil {
-		http.Error(w, "Error calculando créditos", http.StatusInternalServerError)
+		httpx.Error(w, "Error calculando créditos", http.StatusInternalServerError)
 		return
 	}
 	creditosMax, err := h.fetchCreditLimit(p.pensumID, p.semestreEstudiante)
 	if err != nil {
-		http.Error(w, "Error calculando límite de créditos", http.StatusInternalServerError)
+		httpx.Error(w, "Error calculando límite de créditos", http.StatusInternalServerError)
 		return
 	}
 	disponibles := creditosMax - creditosInscritos
@@ -3319,7 +3326,7 @@ func materiasABloquesDetallados(materias []materiaVistaPrevia) []bloqueHorarioDe
 func (h *MatriculaHandler) GetSolicitudVistaPrevia(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Usuario no autenticado", http.StatusUnauthorized)
+		httpx.Error(w, "Usuario no autenticado", http.StatusUnauthorized)
 		return
 	}
 
@@ -3327,10 +3334,10 @@ func (h *MatriculaHandler) GetSolicitudVistaPrevia(w http.ResponseWriter, r *htt
 	err = h.db.QueryRow(`SELECT id FROM jefe_departamental WHERE usuario_id = $1`, claims.Sub).Scan(&jefeID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "Jefe departamental no encontrado", http.StatusNotFound)
+			httpx.Error(w, "Jefe departamental no encontrado", http.StatusNotFound)
 			return
 		}
-		http.Error(w, "Error verificando información del jefe", http.StatusInternalServerError)
+		httpx.Error(w, "Error verificando información del jefe", http.StatusInternalServerError)
 		return
 	}
 
@@ -3347,14 +3354,14 @@ func (h *MatriculaHandler) GetSolicitudVistaPrevia(w http.ResponseWriter, r *htt
 	`, solicitudID).Scan(&estudianteID, &periodoID, &programaID, &estado, &gruposAgregar, &gruposRetirar, &observacion, &fechaRevision)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "Solicitud no encontrada", http.StatusNotFound)
+			httpx.Error(w, "Solicitud no encontrada", http.StatusNotFound)
 			return
 		}
-		http.Error(w, "Error obteniendo solicitud", http.StatusInternalServerError)
+		httpx.Error(w, "Error obteniendo solicitud", http.StatusInternalServerError)
 		return
 	}
 	if programaID != claims.ProgramaID {
-		http.Error(w, "No tienes permisos para ver esta solicitud", http.StatusForbidden)
+		httpx.Error(w, "No tienes permisos para ver esta solicitud", http.StatusForbidden)
 		return
 	}
 
@@ -3370,7 +3377,7 @@ func (h *MatriculaHandler) GetSolicitudVistaPrevia(w http.ResponseWriter, r *htt
 		WHERE e.id = $1
 	`, estudianteID).Scan(&estudianteNombre, &estudianteApellido, &estudianteCodigo, &semestreEstudiante, &estudianteEstado, &promedio, &pensumID)
 	if err != nil {
-		http.Error(w, "Error obteniendo información del estudiante", http.StatusInternalServerError)
+		httpx.Error(w, "Error obteniendo información del estudiante", http.StatusInternalServerError)
 		return
 	}
 
@@ -3379,13 +3386,13 @@ func (h *MatriculaHandler) GetSolicitudVistaPrevia(w http.ResponseWriter, r *htt
 		SELECT id, year, semestre, activo FROM periodo_academico WHERE id = $1
 	`, periodoID).Scan(&periodo.ID, &periodo.Year, &periodo.Semestre, &periodo.Activo)
 	if err != nil {
-		http.Error(w, "Error obteniendo periodo", http.StatusInternalServerError)
+		httpx.Error(w, "Error obteniendo periodo", http.StatusInternalServerError)
 		return
 	}
 
 	matriculaActual, err := h.service.GetMateriasMatriculadas(estudianteID, periodoID)
 	if err != nil {
-		http.Error(w, "Error obteniendo matrícula actual", http.StatusInternalServerError)
+		httpx.Error(w, "Error obteniendo matrícula actual", http.StatusInternalServerError)
 		return
 	}
 
@@ -3396,23 +3403,23 @@ func (h *MatriculaHandler) GetSolicitudVistaPrevia(w http.ResponseWriter, r *htt
 
 	if estado != "pendiente" {
 		h.responderVistaPreviaHistorial(w, vistaPreviaHistorialParams{
-			solicitudID:     solicitudID,
-			estado:          estado,
-			observacion:     observacion,
-			fechaRevision:   fechaRevision,
-			periodo:         periodo,
-			estudianteID:    estudianteID,
-			estudianteNombre: estudianteNombre,
+			solicitudID:        solicitudID,
+			estado:             estado,
+			observacion:        observacion,
+			fechaRevision:      fechaRevision,
+			periodo:            periodo,
+			estudianteID:       estudianteID,
+			estudianteNombre:   estudianteNombre,
 			estudianteApellido: estudianteApellido,
-			estudianteCodigo: estudianteCodigo,
-			estudianteEstado: estudianteEstado,
+			estudianteCodigo:   estudianteCodigo,
+			estudianteEstado:   estudianteEstado,
 			semestreEstudiante: semestreEstudiante,
-			promedio:        promedio,
-			pensumID:        pensumID,
-			periodoID:       periodoID,
-			matriculaActual: matriculaActual,
-			agregar:         agregar,
-			retirar:         retirar,
+			promedio:           promedio,
+			pensumID:           pensumID,
+			periodoID:          periodoID,
+			matriculaActual:    matriculaActual,
+			agregar:            agregar,
+			retirar:            retirar,
 		})
 		return
 	}
@@ -3526,12 +3533,12 @@ func (h *MatriculaHandler) GetSolicitudVistaPrevia(w http.ResponseWriter, r *htt
 
 	creditosInscritos, err := h.fetchInscritosCredits(estudianteID, periodoID)
 	if err != nil {
-		http.Error(w, "Error calculando créditos", http.StatusInternalServerError)
+		httpx.Error(w, "Error calculando créditos", http.StatusInternalServerError)
 		return
 	}
 	creditosMax, err := h.fetchCreditLimit(pensumID, semestreEstudiante)
 	if err != nil {
-		http.Error(w, "Error calculando límite de créditos", http.StatusInternalServerError)
+		httpx.Error(w, "Error calculando límite de créditos", http.StatusInternalServerError)
 		return
 	}
 	creditosProyectados := creditosInscritos - creditosRetirar + creditosAgregar
@@ -3572,10 +3579,10 @@ func (h *MatriculaHandler) GetSolicitudVistaPrevia(w http.ResponseWriter, r *htt
 	}
 
 	resp := map[string]interface{}{
-		"solicitud_id": solicitudID,
-		"estado":       estado,
-		"periodo":      periodo,
-		"estudiante":   estudianteResp,
+		"solicitud_id":         solicitudID,
+		"estado":               estado,
+		"periodo":              periodo,
+		"estudiante":           estudianteResp,
 		"matricula_actual":     matriculaActual,
 		"matricula_proyectada": matriculaProyectada,
 		"materias_retiradas":   retirar,

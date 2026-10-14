@@ -1,16 +1,27 @@
-// Package main es el punto de entrada de la aplicación SIGMAUDC.
+// SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey,
+// Isaac David Paternina Noble, Harry Perez Perea, Camilo Rodríguez Garay,
+// José Félix Bustamante Soto y Juan Felipe Eraso Navarro.
+// Todos los derechos reservados.
+
+// Package main es el punto de entrada de la aplicación SIGMA-UDC.
 // Carga la configuración, conecta la base de datos, inicializa los handlers
 // con sus dependencias inyectadas y arranca el servidor HTTP.
 //
 // Principios aplicados:
-//   - DIP: los handlers reciben sus dependencias (db, AuditoriaService) por inyección.
+//   - DIP: los handlers reciben sus dependencias (db, AuditService) por inyección.
 //   - SRP: main solo orquesta el arranque; la lógica vive en los paquetes internos.
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/andrxsq/SIGMAUDC/internal/config"
 	"github.com/andrxsq/SIGMAUDC/internal/database"
@@ -45,21 +56,25 @@ func main() {
 	}
 
 	// ── 4. Servicios compartidos ──────────────────────────────────────────────
-	// AuditoriaService se crea una vez y se inyecta en todos los handlers
-	// que necesitan registrar eventos (DIP + GRASP Information Expert).
-	auditoria := services.NewAuditoriaService(db)
+	// AuditService se crea una vez y se inyecta en los servicios y handlers
+	// que necesitan registrar o consultar eventos (DIP + GRASP Information Expert).
+	auditRepository := repositories.NewAuditRepository(db)
+	auditService := services.NewAuditService(auditRepository)
+
+	// Garantizar que el directorio de archivos subidos exista desde el arranque.
+	if err := os.MkdirAll(cfg.UploadDir, 0o755); err != nil {
+		log.Fatal("Error creando el directorio de archivos:", err)
+	}
 
 	// ── 5. Handlers ───────────────────────────────────────────────────────────
 	plazosRepository := repositories.NewPlazosRepository(db)
-	plazosService := services.NewPlazosService(plazosRepository, auditoria)
+	plazosService := services.NewPlazosService(plazosRepository, auditService)
 	authRepository := repositories.NewAuthRepository(db)
-	authService := services.NewAuthService(authRepository, auditoria, cfg.JWTSecret)
-	auditRepository := repositories.NewAuditRepository(db)
-	auditService := services.NewAuditService(auditRepository)
+	authService := services.NewAuthService(authRepository, auditService, cfg.JWTSecret)
 	profileRepository := repositories.NewProfileRepository(db)
-	profileService := services.NewProfileService(profileRepository)
+	profileService := services.NewProfileService(profileRepository, cfg.UploadDir)
 	documentosRepository := repositories.NewDocumentosRepository(db)
-	documentosService := services.NewDocumentosService(documentosRepository, auditoria, os.Getenv("UPLOAD_DIR"))
+	documentosService := services.NewDocumentosService(documentosRepository, auditService, cfg.UploadDir)
 	pensumRepository := repositories.NewPensumRepository(db)
 	pensumService := services.NewPensumService(pensumRepository)
 	matriculaRepository := repositories.NewMatriculaRepository(db)
@@ -155,33 +170,43 @@ func main() {
 	// Archivos estáticos protegidos por JWT.
 	r.PathPrefix("/uploads/").Handler(
 		middleware.JWTAuthMiddleware(cfg.JWTSecret)(
-			http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads/"))),
+			http.StripPrefix("/uploads/", http.FileServer(http.Dir(cfg.UploadDir))),
 		),
 	)
 
-	// ── 7. Middlewares globales ───────────────────────────────────────────────
+	// ── 7. Servidor HTTP ──────────────────────────────────────────────────────
+	// Los timeouts protegen el servidor frente a conexiones lentas o incompletas
+	// y el apagado elegante garantiza que las peticiones en curso terminen antes
+	// de detener el proceso.
+	handler := middleware.CORS(cfg.CORSOrigin)(middleware.RequestLogger(r))
 
-	// corsHandler aplica las cabeceras CORS y registra cada petición en el log.
-	// El origen permitido viene de la variable de entorno CORS_ORIGIN (ver config.go).
-	// En producción debe ser el dominio exacto del frontend, no "*".
-	corsHandler := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			log.Printf("📥 %s %s", r.Method, r.URL.Path)
-
-			w.Header().Set("Access-Control-Allow-Origin", cfg.CORSOrigin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-
-			if r.Method == "OPTIONS" {
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
+	srv := &http.Server{
+		Addr:              ":" + cfg.Port,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1 MB
 	}
 
-	// ── 8. Arrancar servidor ──────────────────────────────────────────────────
-	log.Printf("🚀 Servidor iniciado en el puerto %s", cfg.Port)
-	log.Fatal(http.ListenAndServe(":"+cfg.Port, corsHandler(r)))
+	// Apagado elegante ante SIGINT/SIGTERM.
+	shutdownCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		<-shutdownCtx.Done()
+		log.Println("Señal de apagado recibida: cerrando el servidor HTTP...")
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Printf("Error durante el apagado del servidor: %v", err)
+		}
+	}()
+
+	log.Printf("Servidor SIGMA-UDC escuchando en el puerto %s", cfg.Port)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal("Error en el servidor HTTP:", err)
+	}
+	log.Println("Servidor detenido correctamente")
 }

@@ -1,3 +1,9 @@
+// SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey,
+// Isaac David Paternina Noble, Harry Perez Perea, Camilo Rodríguez Garay,
+// José Félix Bustamante Soto y Juan Felipe Eraso Navarro.
+// Todos los derechos reservados.
+
 package services
 
 import (
@@ -23,11 +29,15 @@ var (
 )
 
 type ProfileService struct {
-	repo *repositories.ProfileRepository
+	repo      *repositories.ProfileRepository
+	uploadDir string
 }
 
-func NewProfileService(repo *repositories.ProfileRepository) *ProfileService {
-	return &ProfileService{repo: repo}
+func NewProfileService(repo *repositories.ProfileRepository, uploadDir string) *ProfileService {
+	if uploadDir == "" {
+		uploadDir = "./uploads"
+	}
+	return &ProfileService{repo: repo, uploadDir: uploadDir}
 }
 
 func (s *ProfileService) GetDatosEstudiante(usuarioID int) (*models.EstudianteDatosResponse, error) {
@@ -72,7 +82,7 @@ func (s *ProfileService) UploadEstudianteFoto(usuarioID int, file multipart.File
 		return "", err
 	}
 
-	dir := filepath.Join("uploads", "profiles", fmt.Sprintf("%d", estudianteID))
+	dir := filepath.Join(s.uploadDir, "profiles", fmt.Sprintf("%d", estudianteID))
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
@@ -127,7 +137,7 @@ func (s *ProfileService) UploadJefeFoto(usuarioID int, file multipart.File, file
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join("uploads", "profiles", "jefes", fmt.Sprintf("%d", jefeID))
+	dir := filepath.Join(s.uploadDir, "profiles", "jefes", fmt.Sprintf("%d", jefeID))
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}

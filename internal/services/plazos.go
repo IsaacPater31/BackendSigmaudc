@@ -1,3 +1,9 @@
+// SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey,
+// Isaac David Paternina Noble, Harry Perez Perea, Camilo Rodríguez Garay,
+// José Félix Bustamante Soto y Juan Felipe Eraso Navarro.
+// Todos los derechos reservados.
+
 package services
 
 import (
@@ -26,10 +32,10 @@ type AuditMetadata struct {
 // PlazosService concentra reglas de negocio de plazos del periodo activo.
 type PlazosService struct {
 	repo      *repositories.PlazosRepository
-	auditoria *AuditoriaService
+	auditoria *AuditService
 }
 
-func NewPlazosService(repo *repositories.PlazosRepository, auditoria *AuditoriaService) *PlazosService {
+func NewPlazosService(repo *repositories.PlazosRepository, auditoria *AuditService) *PlazosService {
 	return &PlazosService{
 		repo:      repo,
 		auditoria: auditoria,

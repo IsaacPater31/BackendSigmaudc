@@ -1,3 +1,9 @@
+// SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey,
+// Isaac David Paternina Noble, Harry Perez Perea, Camilo Rodríguez Garay,
+// José Félix Bustamante Soto y Juan Felipe Eraso Navarro.
+// Todos los derechos reservados.
+
 package repositories
 
 import (
@@ -88,8 +94,8 @@ func (r *DocumentosRepository) ListDocumentosByEstudiantePeriodo(estudianteID, p
 			continue
 		}
 		doc.Observacion = models.NullStringJSON{NullString: observacion}
-		doc.RevisadoPor = revisadoPor
-		doc.FechaRevision = fechaRevision
+		doc.RevisadoPor = models.NullInt64JSON{NullInt64: revisadoPor}
+		doc.FechaRevision = models.NullTimeJSON{NullTime: fechaRevision}
 		documentos = append(documentos, doc)
 	}
 	return documentos, rows.Err()
@@ -198,8 +204,8 @@ func (r *DocumentosRepository) ListDocumentosByProgramaPeriodoPaginated(programa
 			continue
 		}
 		doc.Observacion = models.NullStringJSON{NullString: observacion}
-		doc.RevisadoPor = revisadoPor
-		doc.FechaRevision = fechaRevision
+		doc.RevisadoPor = models.NullInt64JSON{NullInt64: revisadoPor}
+		doc.FechaRevision = models.NullTimeJSON{NullTime: fechaRevision}
 		documentos = append(documentos, doc)
 	}
 	return documentos, total, rows.Err()
@@ -233,8 +239,8 @@ func (r *DocumentosRepository) ListDocumentosByProgramaPeriodoLegacy(programaID,
 			continue
 		}
 		doc.Observacion = models.NullStringJSON{NullString: observacion}
-		doc.RevisadoPor = revisadoPor
-		doc.FechaRevision = fechaRevision
+		doc.RevisadoPor = models.NullInt64JSON{NullInt64: revisadoPor}
+		doc.FechaRevision = models.NullTimeJSON{NullTime: fechaRevision}
 		documentos = append(documentos, doc)
 	}
 	return documentos, rows.Err()

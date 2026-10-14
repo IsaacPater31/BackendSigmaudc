@@ -1,3 +1,9 @@
+// SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey,
+// Isaac David Paternina Noble, Harry Perez Perea, Camilo Rodríguez Garay,
+// José Félix Bustamante Soto y Juan Felipe Eraso Navarro.
+// Todos los derechos reservados.
+
 package handlers
 
 import (
@@ -7,6 +13,7 @@ import (
 	"strconv"
 
 	"github.com/andrxsq/SIGMAUDC/internal/constants"
+	"github.com/andrxsq/SIGMAUDC/internal/httpx"
 	"github.com/andrxsq/SIGMAUDC/internal/models"
 	"github.com/andrxsq/SIGMAUDC/internal/services"
 	"github.com/andrxsq/SIGMAUDC/internal/utils"
@@ -25,13 +32,13 @@ func NewPlazosHandler(service *services.PlazosService) *PlazosHandler {
 func (h *PlazosHandler) GetActivePeriodoPlazos(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	resp, err := h.service.GetActivePeriodoPlazos(claims.ProgramaID)
 	if err != nil {
-		http.Error(w, "Error fetching plazos", http.StatusInternalServerError)
+		httpx.Error(w, "Error fetching plazos", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -40,23 +47,23 @@ func (h *PlazosHandler) GetActivePeriodoPlazos(w http.ResponseWriter, r *http.Re
 func (h *PlazosHandler) UpdatePlazos(w http.ResponseWriter, r *http.Request) {
 	periodoID, err := parseIntParam(r, "periodo_id")
 	if err != nil {
-		http.Error(w, "Invalid periodo ID", http.StatusBadRequest)
+		httpx.Error(w, "Invalid periodo ID", http.StatusBadRequest)
 		return
 	}
 
 	var req models.UpdatePlazosRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		httpx.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 	if claims.Rol != constants.RolJefe {
-		http.Error(w, "Solo un jefe departamental puede modificar plazos", http.StatusForbidden)
+		httpx.Error(w, "Solo un jefe departamental puede modificar plazos", http.StatusForbidden)
 		return
 	}
 
@@ -70,16 +77,16 @@ func (h *PlazosHandler) UpdatePlazos(w http.ResponseWriter, r *http.Request) {
 	plazos, err := h.service.UpdatePlazos(periodoID, claims.ProgramaID, req, audit)
 	switch {
 	case errors.Is(err, services.ErrPeriodoNotFound):
-		http.Error(w, "Periodo not found", http.StatusNotFound)
+		httpx.Error(w, "Periodo not found", http.StatusNotFound)
 		return
 	case errors.Is(err, services.ErrPeriodoArchivado):
-		http.Error(w, "No se pueden modificar plazos de un periodo archivado", http.StatusBadRequest)
+		httpx.Error(w, "No se pueden modificar plazos de un periodo archivado", http.StatusBadRequest)
 		return
 	case errors.Is(err, services.ErrPeriodoInactivo):
-		http.Error(w, "No se pueden modificar plazos de un periodo inactivo", http.StatusBadRequest)
+		httpx.Error(w, "No se pueden modificar plazos de un periodo inactivo", http.StatusBadRequest)
 		return
 	case err != nil:
-		http.Error(w, "Error updating plazos", http.StatusInternalServerError)
+		httpx.Error(w, "Error updating plazos", http.StatusInternalServerError)
 		return
 	}
 

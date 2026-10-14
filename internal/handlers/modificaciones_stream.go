@@ -1,8 +1,15 @@
+// SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey,
+// Isaac David Paternina Noble, Harry Perez Perea, Camilo Rodríguez Garay,
+// José Félix Bustamante Soto y Juan Felipe Eraso Navarro.
+// Todos los derechos reservados.
+
 package handlers
 
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/andrxsq/SIGMAUDC/internal/httpx"
 	"log"
 	"net/http"
 	"sync"
@@ -94,19 +101,19 @@ func (h *MatriculaHandler) emitModificacionesEvent(programaID int, eventType str
 func (h *MatriculaHandler) StreamModificacionesEvents(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Usuario no autenticado", http.StatusUnauthorized)
+		httpx.Error(w, "Usuario no autenticado", http.StatusUnauthorized)
 		return
 	}
 
 	programaID := claims.ProgramaID
 	if programaID <= 0 {
-		http.Error(w, "Programa inválido para stream", http.StatusBadRequest)
+		httpx.Error(w, "Programa inválido para stream", http.StatusBadRequest)
 		return
 	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "Streaming no soportado", http.StatusInternalServerError)
+		httpx.Error(w, "Streaming no soportado", http.StatusInternalServerError)
 		return
 	}
 
@@ -130,7 +137,10 @@ func (h *MatriculaHandler) StreamModificacionesEvents(w http.ResponseWriter, r *
 		select {
 		case <-ctx.Done():
 			return
-		case data := <-ch:
+		case data, ok := <-ch:
+			if !ok {
+				return
+			}
 			fmt.Fprintf(w, "event: modificaciones\ndata: %s\n\n", data)
 			flusher.Flush()
 		case <-keepAlive.C:

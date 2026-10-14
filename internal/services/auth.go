@@ -1,3 +1,9 @@
+// SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey,
+// Isaac David Paternina Noble, Harry Perez Perea, Camilo Rodríguez Garay,
+// José Félix Bustamante Soto y Juan Felipe Eraso Navarro.
+// Todos los derechos reservados.
+
 package services
 
 import (
@@ -26,11 +32,11 @@ var (
 
 type AuthService struct {
 	repo      *repositories.AuthRepository
-	auditoria *AuditoriaService
+	auditoria *AuditService
 	jwtSecret string
 }
 
-func NewAuthService(repo *repositories.AuthRepository, auditoria *AuditoriaService, jwtSecret string) *AuthService {
+func NewAuthService(repo *repositories.AuthRepository, auditoria *AuditService, jwtSecret string) *AuthService {
 	return &AuthService{repo: repo, auditoria: auditoria, jwtSecret: jwtSecret}
 }
 
