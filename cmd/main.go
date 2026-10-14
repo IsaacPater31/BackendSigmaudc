@@ -1,6 +1,8 @@
 // SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
-// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey
-// e Isaac David Paternina Noble. Todos los derechos reservados.
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey,
+// Isaac David Paternina Noble, Harry Perez Perea, Camilo Rodríguez Garay,
+// José Félix Bustamante Soto y Juan Felipe Eraso Navarro.
+// Todos los derechos reservados.
 
 // Package main es el punto de entrada de la aplicación SIGMA-UDC.
 // Carga la configuración, conecta la base de datos, inicializa los handlers

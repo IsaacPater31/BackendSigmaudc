@@ -87,6 +87,10 @@ Los errores se responden siempre en JSON con el contrato `{"error": "..."}`.
 - Andrés Javier Quintana Alape
 - Gustavo Calderón Kelsey
 - Isaac David Paternina Noble
+- Harry Perez Perea
+- Camilo Rodríguez Garay
+- José Félix Bustamante Soto
+- Juan Felipe Eraso Navarro
 
 Universidad de Cartagena — Programa de Ingeniería de Sistemas, 2025.
 
