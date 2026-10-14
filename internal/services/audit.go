@@ -6,6 +6,8 @@ package services
 
 import (
 	"log"
+	"strconv"
+	"strings"
 
 	"github.com/andrxsq/SIGMAUDC/internal/constants"
 	"github.com/andrxsq/SIGMAUDC/internal/models"
@@ -27,13 +29,34 @@ func NewAuditService(repo *repositories.AuditRepository) *AuditService {
 	return &AuditService{repo: repo}
 }
 
+// maxAuditLimit acota la cantidad de registros consultables por petición.
+const maxAuditLimit = 500
+
 // GetAuditLogs retorna los últimos registros de auditoría.
-// Si limit está vacío se usa el valor por defecto de constants.DefaultAuditLimit.
+// El parámetro limit se interpreta como entero; valores vacíos, no numéricos
+// o fuera de rango se reemplazan por constants.DefaultAuditLimit o se acotan
+// a maxAuditLimit, evitando errores de SQL ante entradas inválidas.
 func (s *AuditService) GetAuditLogs(limit string) ([]models.AuditLog, error) {
+	return s.repo.GetAuditLogs(strconv.Itoa(parseAuditLimit(limit)))
+}
+
+// parseAuditLimit convierte el query param limit en un entero válido.
+func parseAuditLimit(limit string) int {
 	if limit == "" {
-		limit = constants.DefaultAuditLimit
+		v, err := strconv.Atoi(constants.DefaultAuditLimit)
+		if err != nil {
+			return 50
+		}
+		return v
 	}
-	return s.repo.GetAuditLogs(limit)
+	v, err := strconv.Atoi(strings.TrimSpace(limit))
+	if err != nil || v <= 0 {
+		v, _ = strconv.Atoi(constants.DefaultAuditLimit)
+	}
+	if v > maxAuditLimit {
+		v = maxAuditLimit
+	}
+	return v
 }
 
 // Registrar inserta un evento de auditoría en la base de datos.

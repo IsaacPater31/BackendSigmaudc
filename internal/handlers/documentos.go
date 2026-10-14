@@ -60,41 +60,41 @@ func (h *DocumentosHandler) SubirDocumento(w http.ResponseWriter, r *http.Reques
 		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	_ = r.ParseMultipartForm(constants.MaxDocumentoBytes)
+	// Límite duro del cuerpo multipart (tamaño máximo del documento + margen
+	// para cabeceras y campos del formulario).
+	r.Body = http.MaxBytesReader(w, r.Body, constants.MaxDocumentoBytes+(64<<10))
+	if err := r.ParseMultipartForm(constants.MaxDocumentoBytes); err != nil {
+		httpx.Error(w, "el archivo excede el tamaño máximo permitido (5 MB)", http.StatusBadRequest)
+		return
+	}
 	tipoDocumento := r.FormValue("tipo_documento")
 	file, header, err := r.FormFile("archivo")
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "archivo requerido"})
+		httpx.Error(w, "archivo requerido", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
+	if header.Size > constants.MaxDocumentoBytes {
+		httpx.Error(w, "el archivo excede el tamaño máximo permitido (5 MB)", http.StatusBadRequest)
+		return
+	}
 
 	resp, err := h.service.SubirDocumento(claims.Sub, claims.ProgramaID, tipoDocumento, file, header, utils.GetIPAddress(r), r.UserAgent())
 	switch {
 	case errors.Is(err, services.ErrDocumentoPlazo):
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "el plazo de documentos no está disponible"})
+		httpx.Error(w, "el plazo de documentos no está disponible", http.StatusBadRequest)
 		return
 	case errors.Is(err, services.ErrEstudianteNoEncontradoDoc):
 		httpx.Error(w, "Estudiante no encontrado", http.StatusNotFound)
 		return
 	case errors.Is(err, services.ErrDocumentoTipoInvalido):
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "tipo_documento inválido. Debe ser 'certificado_eps' o 'comprobante_matricula'"})
+		httpx.Error(w, "tipo_documento inválido. Debe ser 'certificado_eps' o 'comprobante_matricula'", http.StatusBadRequest)
 		return
 	case errors.Is(err, services.ErrDocumentoArchivoInvalido):
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "formato o tamaño de archivo inválido"})
+		httpx.Error(w, "formato o tamaño de archivo inválido", http.StatusBadRequest)
 		return
 	case errors.Is(err, services.ErrDocumentoReviewInvalida):
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "Documento ya subido o aprobado"})
+		httpx.Error(w, "Documento ya subido o aprobado", http.StatusBadRequest)
 		return
 	case err != nil:
 		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -163,9 +163,7 @@ func (h *DocumentosHandler) RevisarDocumento(w http.ResponseWriter, r *http.Requ
 		httpx.Error(w, "Forbidden: documento no pertenece a tu programa", http.StatusForbidden)
 		return
 	case errors.Is(err, services.ErrDocumentoReviewInvalida):
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "estado/observación inválidos"})
+		httpx.Error(w, "estado/observación inválidos", http.StatusBadRequest)
 		return
 	case err != nil:
 		httpx.Error(w, "Internal server error", http.StatusInternalServerError)

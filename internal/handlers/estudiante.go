@@ -87,8 +87,9 @@ func (h *EstudianteHandler) SubirFotoEstudiante(w http.ResponseWriter, r *http.R
 		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, constants.MaxFotoBytes+(64<<10))
 	if err := r.ParseMultipartForm(constants.MaxFotoBytes); err != nil {
-		httpx.Error(w, "No se pudo procesar el archivo", http.StatusBadRequest)
+		httpx.Error(w, "la imagen excede el tamaño máximo permitido (8 MB)", http.StatusBadRequest)
 		return
 	}
 	file, header, err := r.FormFile("foto")
@@ -97,6 +98,10 @@ func (h *EstudianteHandler) SubirFotoEstudiante(w http.ResponseWriter, r *http.R
 		return
 	}
 	defer file.Close()
+	if header.Size > constants.MaxFotoBytes {
+		httpx.Error(w, "la imagen excede el tamaño máximo permitido (8 MB)", http.StatusBadRequest)
+		return
+	}
 
 	photoURL, err := h.service.UploadEstudianteFoto(claims.Sub, file, header.Filename)
 	if errors.Is(err, services.ErrFormatoImagenInvalido) {

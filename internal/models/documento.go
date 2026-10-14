@@ -38,6 +38,34 @@ func (n *NullStringJSON) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// NullInt64JSON serializa sql.NullInt64 como número o null en JSON,
+// evitando exponer la estructura interna {"Int64":...,"Valid":...}.
+type NullInt64JSON struct {
+	sql.NullInt64
+}
+
+// MarshalJSON implementa la serialización JSON personalizada
+func (n NullInt64JSON) MarshalJSON() ([]byte, error) {
+	if n.Valid {
+		return json.Marshal(n.Int64)
+	}
+	return json.Marshal(nil)
+}
+
+// NullTimeJSON serializa sql.NullTime como timestamp o null en JSON,
+// evitando exponer la estructura interna {"Time":...,"Valid":...}.
+type NullTimeJSON struct {
+	sql.NullTime
+}
+
+// MarshalJSON implementa la serialización JSON personalizada
+func (n NullTimeJSON) MarshalJSON() ([]byte, error) {
+	if n.Valid {
+		return json.Marshal(n.Time)
+	}
+	return json.Marshal(nil)
+}
+
 // DocumentoEstudiante representa un documento subido por un estudiante
 type DocumentoEstudiante struct {
 	ID            int            `json:"id"`
@@ -47,10 +75,10 @@ type DocumentoEstudiante struct {
 	TipoDocumento string         `json:"tipo_documento"` // "certificado_eps" o "comprobante_matricula"
 	ArchivoURL    string         `json:"archivo_url"`
 	Estado        string         `json:"estado"` // "pendiente", "aprobado", "rechazado"
-	Observacion   NullStringJSON `json:"observacion,omitempty"`
-	RevisadoPor   sql.NullInt64  `json:"revisado_por,omitempty"`
+	Observacion   NullStringJSON `json:"observacion"`
+	RevisadoPor   NullInt64JSON  `json:"revisado_por"`
 	FechaSubida   time.Time      `json:"fecha_subida"`
-	FechaRevision sql.NullTime   `json:"fecha_revision,omitempty"`
+	FechaRevision NullTimeJSON   `json:"fecha_revision"`
 	// Campos adicionales para respuesta
 	EstudianteNombre   string `json:"estudiante_nombre,omitempty"`
 	EstudianteApellido string `json:"estudiante_apellido,omitempty"`

@@ -135,7 +135,10 @@ func (h *MatriculaHandler) StreamModificacionesEvents(w http.ResponseWriter, r *
 		select {
 		case <-ctx.Done():
 			return
-		case data := <-ch:
+		case data, ok := <-ch:
+			if !ok {
+				return
+			}
 			fmt.Fprintf(w, "event: modificaciones\ndata: %s\n\n", data)
 			flusher.Flush()
 		case <-keepAlive.C:

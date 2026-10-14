@@ -154,10 +154,14 @@ func (s *DocumentosService) SubirDocumento(usuarioID, programaID int, tipoDocume
 		estudianteCodigo = fmt.Sprintf("estudiante_%d", estudianteID)
 	}
 
-	filenameWithoutExt := strings.TrimSuffix(header.Filename, ext)
+	// El nombre de archivo proviene del cliente: se sanea para impedir
+	// path traversal (ej. "../../x.pdf" dentro del nombre original).
+	filenameWithoutExt := sanitizePathComponent(
+		strings.TrimSuffix(filepath.Base(header.Filename), ext),
+	)
 	periodoFolder := fmt.Sprintf("%d-%d", periodo.Year, periodo.Semestre)
-	programaFolder := fmt.Sprintf("%d_%s", programaID, strings.ReplaceAll(strings.ToLower(programaNombre), " ", "_"))
-	estudianteFolder := fmt.Sprintf("%d_%s", estudianteID, estudianteCodigo)
+	programaFolder := fmt.Sprintf("%d_%s", programaID, sanitizePathComponent(strings.ReplaceAll(strings.ToLower(programaNombre), " ", "_")))
+	estudianteFolder := fmt.Sprintf("%d_%s", estudianteID, sanitizePathComponent(estudianteCodigo))
 	uploadPath := filepath.Join(s.uploadDirectory, periodoFolder, programaFolder, estudianteFolder)
 	if err := os.MkdirAll(uploadPath, 0755); err != nil {
 		return nil, err
@@ -165,6 +169,12 @@ func (s *DocumentosService) SubirDocumento(usuarioID, programaID int, tipoDocume
 
 	filename := fmt.Sprintf("%d_%d_%s_%s%s", estudianteID, time.Now().Unix(), tipoDocumento, filenameWithoutExt, ext)
 	filePath := filepath.Join(uploadPath, filename)
+	// Defensa en profundidad: la ruta final debe quedar dentro del
+	// directorio del estudiante.
+	cleanUploadPath := filepath.Clean(uploadPath)
+	if !strings.HasPrefix(filepath.Clean(filePath), cleanUploadPath+string(os.PathSeparator)) {
+		return nil, ErrDocumentoArchivoInvalido
+	}
 	dst, err := os.Create(filePath)
 	if err != nil {
 		return nil, err
@@ -315,6 +325,37 @@ func (s *DocumentosService) RevisarDocumento(usuarioID, programaID, docID int, r
 		"fecha_revision": fechaRevision,
 		"message":        "Documento revisado exitosamente",
 	}, nil
+}
+
+// sanitizePathComponent deja solo caracteres seguros para un nombre de
+// archivo o carpeta: letras, dígitos, punto, guion y guion bajo.
+// Elimina secuencias de separadores y ".." para impedir path traversal.
+func sanitizePathComponent(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		case r == ' ':
+			b.WriteRune('_')
+		default:
+			// Carácter no permitido: se descarta.
+		}
+	}
+	clean := b.String()
+	for strings.Contains(clean, "..") {
+		clean = strings.ReplaceAll(clean, "..", "_")
+	}
+	clean = strings.Trim(clean, "._-")
+	const maxLen = 80
+	if len(clean) > maxLen {
+		clean = clean[:maxLen]
+	}
+	if clean == "" {
+		clean = "archivo"
+	}
+	return clean
 }
 
 func isAllowedDocExt(ext string, allowed []string) bool {

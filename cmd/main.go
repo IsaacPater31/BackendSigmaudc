@@ -70,7 +70,7 @@ func main() {
 	authRepository := repositories.NewAuthRepository(db)
 	authService := services.NewAuthService(authRepository, auditService, cfg.JWTSecret)
 	profileRepository := repositories.NewProfileRepository(db)
-	profileService := services.NewProfileService(profileRepository)
+	profileService := services.NewProfileService(profileRepository, cfg.UploadDir)
 	documentosRepository := repositories.NewDocumentosRepository(db)
 	documentosService := services.NewDocumentosService(documentosRepository, auditService, cfg.UploadDir)
 	pensumRepository := repositories.NewPensumRepository(db)
