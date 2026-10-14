@@ -1,3 +1,7 @@
+// SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey
+// e Isaac David Paternina Noble. Todos los derechos reservados.
+
 // Package handlers – AuthHandler
 // Gestiona la autenticación de usuarios: login y configuración inicial de contraseña.
 package handlers
@@ -7,6 +11,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/andrxsq/SIGMAUDC/internal/httpx"
 	"github.com/andrxsq/SIGMAUDC/internal/middleware"
 	"github.com/andrxsq/SIGMAUDC/internal/models"
 	"github.com/andrxsq/SIGMAUDC/internal/services"
@@ -16,8 +21,8 @@ import (
 // AuthHandler gestiona las peticiones de autenticación del sistema.
 //
 // Principios aplicados:
-//   - SRP: solo se ocupa de autenticación; la auditoría es delegada al AuditoriaService.
-//   - DIP: depende de AuditoriaService (abstracción), no implementa la lógica de auditoría.
+//   - SRP: solo se ocupa de autenticación; la auditoría es delegada al AuditService.
+//   - DIP: depende de AuditService (abstracción), no implementa la lógica de auditoría.
 type AuthHandler struct {
 	service *services.AuthService
 }
@@ -40,7 +45,7 @@ func NewAuthHandler(service *services.AuthService) *AuthHandler {
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req models.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		httpx.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -76,7 +81,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) SetPassword(w http.ResponseWriter, r *http.Request) {
 	var req models.SetPasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		httpx.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -100,7 +105,7 @@ func (h *AuthHandler) SetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, "Error updating password", http.StatusInternalServerError)
+		httpx.Error(w, "Error updating password", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -114,13 +119,13 @@ func (h *AuthHandler) SetPassword(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 	claims, ok := middleware.GetClaimsFromContext(r.Context())
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	usuario, err := h.service.GetCurrentUser(claims.Sub)
 	if err != nil {
-		http.Error(w, "Error fetching user", http.StatusInternalServerError)
+		httpx.Error(w, "Error fetching user", http.StatusInternalServerError)
 		return
 	}
 

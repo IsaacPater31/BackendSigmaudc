@@ -1,6 +1,11 @@
+// SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey
+// e Isaac David Paternina Noble. Todos los derechos reservados.
+
 package middleware
 
 import (
+	"github.com/andrxsq/SIGMAUDC/internal/httpx"
 	"net/http"
 )
 
@@ -16,12 +21,12 @@ func RequireRoles(allowedRoles ...string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims, ok := GetClaimsFromContext(r.Context())
 			if !ok {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
 
 			if _, exists := allowed[claims.Rol]; !exists {
-				http.Error(w, "Forbidden", http.StatusForbidden)
+				httpx.Error(w, "Forbidden", http.StatusForbidden)
 				return
 			}
 

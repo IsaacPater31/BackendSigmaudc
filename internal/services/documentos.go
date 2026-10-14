@@ -1,3 +1,7 @@
+// SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey
+// e Isaac David Paternina Noble. Todos los derechos reservados.
+
 package services
 
 import (
@@ -29,11 +33,11 @@ var (
 
 type DocumentosService struct {
 	repo            *repositories.DocumentosRepository
-	auditoria       *AuditoriaService
+	auditoria       *AuditService
 	uploadDirectory string
 }
 
-func NewDocumentosService(repo *repositories.DocumentosRepository, auditoria *AuditoriaService, uploadDirectory string) *DocumentosService {
+func NewDocumentosService(repo *repositories.DocumentosRepository, auditoria *AuditService, uploadDirectory string) *DocumentosService {
 	if uploadDirectory == "" {
 		uploadDirectory = "./uploads"
 	}

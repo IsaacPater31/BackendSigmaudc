@@ -1,3 +1,7 @@
+// SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey
+// e Isaac David Paternina Noble. Todos los derechos reservados.
+
 package handlers
 
 import (
@@ -6,6 +10,7 @@ import (
 	"net/http"
 
 	"github.com/andrxsq/SIGMAUDC/internal/constants"
+	"github.com/andrxsq/SIGMAUDC/internal/httpx"
 	"github.com/andrxsq/SIGMAUDC/internal/models"
 	"github.com/andrxsq/SIGMAUDC/internal/services"
 )
@@ -21,20 +26,20 @@ func NewEstudianteHandler(service *services.ProfileService) *EstudianteHandler {
 func (h *EstudianteHandler) GetDatosEstudiante(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 	if claims.Rol != constants.RolEstudiante {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	datos, err := h.service.GetDatosEstudiante(claims.Sub)
 	if errors.Is(err, services.ErrEstudianteNoEncontrado) {
-		http.Error(w, "Estudiante no encontrado", http.StatusNotFound)
+		httpx.Error(w, "Estudiante no encontrado", http.StatusNotFound)
 		return
 	}
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -44,29 +49,29 @@ func (h *EstudianteHandler) GetDatosEstudiante(w http.ResponseWriter, r *http.Re
 func (h *EstudianteHandler) UpdateDatosEstudiante(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 	if claims.Rol != constants.RolEstudiante {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	var payload models.UpdateDatosRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Payload inválido", http.StatusBadRequest)
+		httpx.Error(w, "Payload inválido", http.StatusBadRequest)
 		return
 	}
 	err = h.service.UpdateDatosEstudiante(claims.Sub, payload)
 	if errors.Is(err, services.ErrSexoInvalido) {
-		http.Error(w, "Valor de sexo inválido", http.StatusBadRequest)
+		httpx.Error(w, "Valor de sexo inválido", http.StatusBadRequest)
 		return
 	}
 	if errors.Is(err, services.ErrEstudianteNoEncontrado) {
-		http.Error(w, "estudiante no encontrado", http.StatusBadRequest)
+		httpx.Error(w, "estudiante no encontrado", http.StatusBadRequest)
 		return
 	}
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -75,35 +80,35 @@ func (h *EstudianteHandler) UpdateDatosEstudiante(w http.ResponseWriter, r *http
 func (h *EstudianteHandler) SubirFotoEstudiante(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 	if claims.Rol != constants.RolEstudiante {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	if err := r.ParseMultipartForm(constants.MaxFotoBytes); err != nil {
-		http.Error(w, "No se pudo procesar el archivo", http.StatusBadRequest)
+		httpx.Error(w, "No se pudo procesar el archivo", http.StatusBadRequest)
 		return
 	}
 	file, header, err := r.FormFile("foto")
 	if err != nil {
-		http.Error(w, "Debes subir una imagen", http.StatusBadRequest)
+		httpx.Error(w, "Debes subir una imagen", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
 
 	photoURL, err := h.service.UploadEstudianteFoto(claims.Sub, file, header.Filename)
 	if errors.Is(err, services.ErrFormatoImagenInvalido) {
-		http.Error(w, "Formato de imagen no permitido", http.StatusBadRequest)
+		httpx.Error(w, "Formato de imagen no permitido", http.StatusBadRequest)
 		return
 	}
 	if errors.Is(err, services.ErrEstudianteNoEncontrado) {
-		http.Error(w, "estudiante no encontrado", http.StatusBadRequest)
+		httpx.Error(w, "estudiante no encontrado", http.StatusBadRequest)
 		return
 	}
 	if err != nil {
-		http.Error(w, "No se pudo guardar la imagen", http.StatusInternalServerError)
+		httpx.Error(w, "No se pudo guardar la imagen", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

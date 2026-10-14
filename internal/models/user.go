@@ -1,10 +1,13 @@
+// SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey
+// e Isaac David Paternina Noble. Todos los derechos reservados.
+
 // Package models define las estructuras de datos compartidas por la aplicación:
 // entidades de negocio, DTOs de request/response y claims del token JWT.
 package models
 
 import (
 	"database/sql"
-	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -35,10 +38,10 @@ type LoginRequest struct {
 // LoginResponse es la respuesta del endpoint POST /auth/login.
 // Los campos omitempty permiten retornar solo los relevantes según el flujo.
 type LoginResponse struct {
-	Token                string `json:"token,omitempty"`
+	Token                 string `json:"token,omitempty"`
 	RequiresPasswordSetup bool   `json:"requiresPasswordSetup,omitempty"`
-	UserID               int    `json:"userId,omitempty"`
-	Message              string `json:"message,omitempty"`
+	UserID                int    `json:"userId,omitempty"`
+	Message               string `json:"message,omitempty"`
 	// ErrorType clasifica el tipo de error: "user_not_found", "wrong_password", "connection_error".
 	ErrorType string `json:"errorType,omitempty"`
 }
@@ -59,17 +62,6 @@ type SetPasswordResponse struct {
 }
 
 // ─── Auditoría ────────────────────────────────────────────────────────────────
-
-// Auditoria representa un registro de evento en la tabla auditoria.
-type Auditoria struct {
-	ID          int           `json:"id"`
-	UsuarioID   sql.NullInt64 `json:"usuario_id"`
-	Accion      string        `json:"accion"`
-	Descripcion string        `json:"descripcion"`
-	Fecha       time.Time     `json:"fecha"`
-	IP          string        `json:"ip"`
-	UserAgent   string        `json:"user_agent"`
-}
 
 // AuditLog es el DTO de respuesta para el endpoint GET /api/audit.
 // Usa *int para UsuarioID para serializar como null cuando no aplica.

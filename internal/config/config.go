@@ -1,3 +1,7 @@
+// SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey
+// e Isaac David Paternina Noble. Todos los derechos reservados.
+
 // Package config gestiona la configuración de la aplicación cargada
 // desde variables de entorno. Es el único punto donde se leen variables
 // de entorno, evitando accesos dispersos a os.Getenv en toda la app.

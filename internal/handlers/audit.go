@@ -1,3 +1,7 @@
+// SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey
+// e Isaac David Paternina Noble. Todos los derechos reservados.
+
 // Package handlers – AuditHandler
 // Expone el endpoint de consulta de logs de auditoría del sistema.
 package handlers
@@ -7,6 +11,7 @@ import (
 	"net/http"
 
 	"github.com/andrxsq/SIGMAUDC/internal/constants"
+	"github.com/andrxsq/SIGMAUDC/internal/httpx"
 	"github.com/andrxsq/SIGMAUDC/internal/services"
 )
 
@@ -29,17 +34,17 @@ func NewAuditHandler(service *services.AuditService) *AuditHandler {
 func (h *AuditHandler) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 	if claims.Rol != constants.RolJefe {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
 	logs, err := h.service.GetAuditLogs(r.URL.Query().Get("limit"))
 	if err != nil {
-		http.Error(w, "Error fetching audit logs", http.StatusInternalServerError)
+		httpx.Error(w, "Error fetching audit logs", http.StatusInternalServerError)
 		return
 	}
 

@@ -1,3 +1,7 @@
+// SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey
+// e Isaac David Paternina Noble. Todos los derechos reservados.
+
 package handlers
 
 import (
@@ -9,6 +13,7 @@ import (
 	"strconv"
 
 	"github.com/andrxsq/SIGMAUDC/internal/constants"
+	"github.com/andrxsq/SIGMAUDC/internal/httpx"
 	"github.com/andrxsq/SIGMAUDC/internal/models"
 	"github.com/andrxsq/SIGMAUDC/internal/repositories"
 	"github.com/andrxsq/SIGMAUDC/internal/services"
@@ -27,20 +32,20 @@ func NewPensumHandler(service *services.PensumService) *PensumHandler {
 func (h *PensumHandler) GetPensumEstudiante(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 	if claims.Rol != constants.RolEstudiante {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	resp, err := h.service.GetPensumEstudiante(claims.Sub)
 	if errors.Is(err, services.ErrPensumNoAsignado) {
-		http.Error(w, "Pensum no asignado al estudiante", http.StatusNotFound)
+		httpx.Error(w, "Pensum no asignado al estudiante", http.StatusNotFound)
 		return
 	}
 	if err != nil {
-		http.Error(w, "Error obteniendo pensum", http.StatusInternalServerError)
+		httpx.Error(w, "Error obteniendo pensum", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -50,16 +55,16 @@ func (h *PensumHandler) GetPensumEstudiante(w http.ResponseWriter, r *http.Reque
 func (h *PensumHandler) ListPensums(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 	if claims.Rol != constants.RolJefe {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	list, err := h.service.ListPensums()
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -69,21 +74,21 @@ func (h *PensumHandler) ListPensums(w http.ResponseWriter, r *http.Request) {
 func (h *PensumHandler) GetAsignaturasPensum(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 	if claims.Rol != constants.RolJefe {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	pensumID, err := strconv.Atoi(mux.Vars(r)["id"])
 	if err != nil || pensumID <= 0 {
-		http.Error(w, "ID de pensum inválido", http.StatusBadRequest)
+		httpx.Error(w, "ID de pensum inválido", http.StatusBadRequest)
 		return
 	}
 	asignaturas, err := h.service.GetAsignaturasPensum(pensumID)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -93,21 +98,21 @@ func (h *PensumHandler) GetAsignaturasPensum(w http.ResponseWriter, r *http.Requ
 func (h *PensumHandler) GetGruposPensum(w http.ResponseWriter, r *http.Request) {
 	claims, err := getClaims(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httpx.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 	if claims.Rol != constants.RolJefe {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpx.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	pensumID, err := strconv.Atoi(mux.Vars(r)["id"])
 	if err != nil || pensumID <= 0 {
-		http.Error(w, "ID de pensum inválido", http.StatusBadRequest)
+		httpx.Error(w, "ID de pensum inválido", http.StatusBadRequest)
 		return
 	}
 	grupos, err := h.service.GetGruposPensum(pensumID)
 	if err != nil {
-		http.Error(w, "No hay periodo académico activo", http.StatusNotFound)
+		httpx.Error(w, "No hay periodo académico activo", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

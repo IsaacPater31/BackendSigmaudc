@@ -1,3 +1,7 @@
+// SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey
+// e Isaac David Paternina Noble. Todos los derechos reservados.
+
 package middleware
 
 import (
@@ -5,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/andrxsq/SIGMAUDC/internal/httpx"
 	"github.com/andrxsq/SIGMAUDC/internal/models"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -23,7 +28,7 @@ func JWTAuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
 				// Extraer el token del header "Bearer <token>"
 				parts := strings.Split(authHeader, " ")
 				if len(parts) != 2 || parts[0] != "Bearer" {
-					http.Error(w, "Invalid authorization header format", http.StatusUnauthorized)
+					httpx.Error(w, "Invalid authorization header format", http.StatusUnauthorized)
 					return
 				}
 				tokenString = parts[1]
@@ -31,12 +36,12 @@ func JWTAuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
 				// Fallback por query token solo para endpoints que no pueden enviar
 				// Authorization fácilmente (SSE y archivos protegidos).
 				if !canUseQueryToken(r.URL.Path) {
-					http.Error(w, "Authorization header required", http.StatusUnauthorized)
+					httpx.Error(w, "Authorization header required", http.StatusUnauthorized)
 					return
 				}
 				tokenString = strings.TrimSpace(r.URL.Query().Get("token"))
 				if tokenString == "" {
-					http.Error(w, "Authorization header required", http.StatusUnauthorized)
+					httpx.Error(w, "Authorization header required", http.StatusUnauthorized)
 					return
 				}
 			}
@@ -52,13 +57,13 @@ func JWTAuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
 			})
 
 			if err != nil || !token.Valid {
-				http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
+				httpx.Error(w, "Invalid or expired token", http.StatusUnauthorized)
 				return
 			}
 
 			// Validar que los claims no estén vacíos
 			if claims.Sub == 0 {
-				http.Error(w, "Invalid token claims", http.StatusUnauthorized)
+				httpx.Error(w, "Invalid token claims", http.StatusUnauthorized)
 				return
 			}
 

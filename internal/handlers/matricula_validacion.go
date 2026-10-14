@@ -1,3 +1,7 @@
+// SIGMA-UDC — Sistema Integral de Gestión de Matrícula Académica
+// Copyright (c) 2025 Andrés Javier Quintana Alape, Gustavo Calderón Kelsey
+// e Isaac David Paternina Noble. Todos los derechos reservados.
+
 package handlers
 
 import (
@@ -8,6 +12,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/andrxsq/SIGMAUDC/internal/httpx"
 	"github.com/andrxsq/SIGMAUDC/internal/models"
 	"github.com/lib/pq"
 )
@@ -31,11 +36,11 @@ func respondMatriculaValidation(w http.ResponseWriter, err error) bool {
 	}
 	var ve *matriculaValidationError
 	if errors.As(err, &ve) {
-		http.Error(w, ve.msg, ve.status)
+		httpx.Error(w, ve.msg, ve.status)
 		return true
 	}
 	log.Printf("Error de validación interno: %v", err)
-	http.Error(w, "Internal server error", http.StatusInternalServerError)
+	httpx.Error(w, "Internal server error", http.StatusInternalServerError)
 	return true
 }
 
